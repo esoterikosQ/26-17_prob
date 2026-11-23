@@ -54,6 +54,14 @@ class MorphAnalyzer:
         return self.kiwi.join([(m.form, m.tag, m.space_before) for m in morphs],
                               lm_search=lm_search)
 
+    def spans(self, text: str) -> List[tuple]:
+        """[(형태, 품사, 시작, 끝)] — 위치는 text의 문자 인덱스(반열림). 정렬(A-0d)용."""
+        return [(t.form, t.tag, t.start, t.start + t.len) for t in self.kiwi.tokenize(text)]
+
+    def spans_many(self, texts: List[str]) -> List[List[tuple]]:
+        return [[(t.form, t.tag, t.start, t.start + t.len) for t in toks]
+                for toks in self.kiwi.tokenize(texts)]
+
 
 def normalize_space(text: str) -> str:
     """연속 공백을 하나로, 양끝 공백 제거 (왕복 비교 보조)."""
