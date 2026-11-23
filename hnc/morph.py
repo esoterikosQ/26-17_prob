@@ -1,9 +1,10 @@
 """A-0b 형태소 분석·표층 실현.
 
 - ``analyze(y)``: 교정문 y → 형태소열. 각 형태소는 (형태, 품사, 왼쪽 띄어쓰기 유무)를 갖는다.
-  띄어쓰기 유무를 형태소열에 실어야 표층 실현 R(m)이 결정적이 된다(설계서 §1.1).
+  띄어쓰기 유무를 형태소열에 실어야 표층 실현 R(m)이 어절 경계를 재현한다(설계서 §1.1).
 - ``realize(m)``: 형태소열 → 표층 문자열. Kiwi ``join``이 축약·이형태·불규칙 활용을 처리한다
-  (하+었→했, 덥+어→더워, 을/를 교체).
+  (하+었→했, 덥+어→더워, 을/를 교체). 형태소열은 축약 여부를 담지 않으므로 이 함수는
+  자유 변이(되어/돼, 것이/게) 중 하나만 고른다 — 실측 왕복률은 ``log.md`` 2026-11-24 참조.
 
 오류문 x는 분석하지 않는다(설계서 §1.1).
 """
@@ -22,10 +23,10 @@ class Morph(NamedTuple):
 class MorphAnalyzer:
     """Kiwi 래퍼. Kiwi 인스턴스 생성이 무거우므로 한 번 만들어 재사용한다."""
 
-    def __init__(self, kiwi=None, num_workers: int = 0):
+    def __init__(self, kiwi=None, num_workers: int | None = None):
         if kiwi is None:
             from kiwipiepy import Kiwi
-            kiwi = Kiwi(num_workers=num_workers)
+            kiwi = Kiwi() if num_workers is None else Kiwi(num_workers=num_workers)
         self.kiwi = kiwi
 
     @staticmethod
