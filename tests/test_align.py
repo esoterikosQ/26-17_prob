@@ -86,5 +86,27 @@ def test_char_align_prefers_space_indel_over_substitution():
     assert (1, None) in A
 
 
+def test_spacing_and_spelling_edits_are_separate_regions(ana):
+    y, x = "먹은 적 있어서", "먹은 적잇어서"
+    rs = _align(ana, y, x)
+    assert [(r.y_seg, r.x_seg, r.kind) for r in rs] == [(" ", "", "spacing"), ("있", "잇", "edit")]
+    assert rebuild_x(y, rs) == x
+
+
+def test_punct_region_kind(ana):
+    rs = _align(ana, "좋아요.", "좋아요!!")
+    assert [(r.y_seg, r.x_seg, r.kind) for r in rs] == [(".", "!!", "punct")]
+
+
+def test_jamo_align_prefers_resyllabification():
+    from hnc.jamo import decompose
+    # 먹어 → 머거: 종성 ᆨ이 다음 음절 초성 ᄀ로 (같은 키, 위치만 다름) + ᄋ 삭제
+    ops = jamo_align(decompose("먹어"), decompose("머거"))
+    assert [o for o in ops if o[0] != "="] == [("sub", "ᆨ", "ᄀ"), ("del", "ᄋ", "")]
+    # 으면 → 음: 초성 ᄆ이 종성 ᆷ으로 + ᅧ, ᆫ 삭제
+    ops = jamo_align(decompose("으면"), decompose("음"))
+    assert ("sub", "ᄆ", "ᆷ") in ops
+
+
 def test_jamo_align_ops():
     assert jamo_align(["ᄀ", "ᅡ"], ["ᄀ", "ᅡ", "ᆨ"]) == [("=", "ᄀ", "ᄀ"), ("=", "ᅡ", "ᅡ"), ("ins", "", "ᆨ")]

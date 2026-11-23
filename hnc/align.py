@@ -5,11 +5,11 @@
 1. 문자 정렬: x와 y의 공통 접두·접미를 떼고 가운데를 가중 레벤슈타인으로 정렬한다.
    한글 음절끼리의 치환 비용은 자모 거리로 매기고(비슷한 음절일수록 쌈), 공백 삽입·삭제는 싸게,
    공백과 문자의 치환은 금지에 가깝게 둔다.
-2. 형태소 투영: 연속된 비일치 정렬 항목을 편집 구간으로 묶고, y 쪽 구간을 y의 Kiwi 형태소
-   위치(span)에 맞게 넓힌다. 한 음절에 겹친 형태소(갔 = 가 + 었)도 함께 묶인다. 넓힌 뒤 겹치는
+2. 형태소 투영: 연속된 비일치 정렬 항목을 편집 구간으로 묶고(공백 삽입·삭제는 따로 묶음),
+   y 쪽 구간을 y의 Kiwi 형태소 위치(span)에 맞게 넓힌다. 한 음절에 겹친 형태소(갔 = 가 + 었)도 함께 묶인다. 넓힌 뒤 겹치는
    구간은 합친다.
-3. 자모 재정렬: 각 구간의 y 조각과 x 조각을 위치 구분 자모열(``hnc.jamo``)로 바꿔 단위 비용
-   레벤슈타인으로 정렬한다.
+3. 자모 재정렬: 각 구간의 y 조각과 x 조각을 위치 구분 자모열(``hnc.jamo``)로 바꿔 레벤슈타인으로
+   정렬한다. 같은 키의 위치만 다른 치환(초성 ᄆ ↔ 종성 ᆷ)은 싸게 두어 연음·재음절화를 잡는다.
 
 편집 방향은 생성 방향(채널 P(x|y))이다: ``sub`` = y 자모가 x 자모로 바뀜, ``del`` = y 자모가
 x에서 빠짐, ``ins`` = x에 자모가 더해짐.
@@ -48,7 +48,7 @@ class Region:
     x_end: int
     y_seg: str
     x_seg: str
-    kind: str                     # 'spacing' (공백만 다름) | 'edit'
+    kind: str                     # 'spacing'(공백만 다름) | 'punct'(문자·숫자 없음) | 'edit'
     morphs: List[Tuple[str, str]] = field(default_factory=list)
     jamo_ops: List[Tuple[str, str, str]] = field(default_factory=list)
 
@@ -132,21 +132,34 @@ def char_align(y: str, x: str) -> List[Tuple[Optional[int], Optional[int]]]:
 
 
 # --- 3. 자모 재정렬 -------------------------------------------------------------
+REPOS_SUB = 0.5  # 같은 키·다른 위치 치환(초성 ᄆ ↔ 종성 ᆷ): 연음·재음절화 편집을 선호
+
+
+def _jamo_sub(a: str, b: str) -> float:
+    if a == b:
+        return 0.0
+    ka, kb = jamo.KEY_OF.get(a), jamo.KEY_OF.get(b)
+    return REPOS_SUB if ka is not None and ka == kb else 1.0
+
+
 def jamo_align(ys: Sequence[str], xs: Sequence[str]) -> List[Tuple[str, str, str]]:
-    """단위 비용 레벤슈타인 자모 정렬 [(op, y 자모, x 자모)], op ∈ {'=', 'sub', 'del', 'ins'}."""
+    """자모 정렬 [(op, y 자모, x 자모)], op ∈ {'=', 'sub', 'del', 'ins'}.
+
+    삽입·삭제 1, 치환 1, 같은 키의 위치만 다른 치환은 ``REPOS_SUB``. 동점이면 대각을 우선한다.
+    """
     n, m = len(ys), len(xs)
-    D = [[0] * (m + 1) for _ in range(n + 1)]
+    D = [[0.0] * (m + 1) for _ in range(n + 1)]
     for i in range(n + 1):
-        D[i][0] = i
+        D[i][0] = float(i)
     for j in range(m + 1):
-        D[0][j] = j
+        D[0][j] = float(j)
     for i in range(1, n + 1):
         for j in range(1, m + 1):
-            D[i][j] = min(D[i - 1][j - 1] + (ys[i - 1] != xs[j - 1]), D[i - 1][j] + 1, D[i][j - 1] + 1)
+            D[i][j] = min(D[i - 1][j - 1] + _jamo_sub(ys[i - 1], xs[j - 1]), D[i - 1][j] + 1, D[i][j - 1] + 1)
     ops: List[Tuple[str, str, str]] = []
     i, j = n, m
     while i > 0 or j > 0:
-        if i > 0 and j > 0 and D[i][j] == D[i - 1][j - 1] + (ys[i - 1] != xs[j - 1]):
+        if i > 0 and j > 0 and D[i][j] == D[i - 1][j - 1] + _jamo_sub(ys[i - 1], xs[j - 1]):
             ops.append(("=" if ys[i - 1] == xs[j - 1] else "sub", ys[i - 1], xs[j - 1]))
             i, j = i - 1, j - 1
         elif i > 0 and D[i][j] == D[i - 1][j] + 1:
@@ -160,16 +173,28 @@ def jamo_align(ys: Sequence[str], xs: Sequence[str]) -> List[Tuple[str, str, str
 
 
 # --- 2. 편집 구간 + 형태소 투영 -------------------------------------------------
+def _entry_type(y: str, x: str, e) -> str:
+    """정렬 항목 종류: 'match' | 'space'(공백 삽입·삭제) | 'edit'."""
+    i, j = e
+    if i is not None and j is not None:
+        return "match" if y[i] == x[j] else "edit"
+    c = y[i] if i is not None else x[j]
+    return "space" if c == " " else "edit"
+
+
 def _raw_regions(y: str, x: str, A) -> List[Tuple[int, int]]:
-    """연속된 비일치 정렬 항목의 정렬 인덱스 구간 [a0, a1)."""
-    out, start = [], None
-    for k, (i, j) in enumerate(A):
-        match = i is not None and j is not None and y[i] == x[j]
-        if not match and start is None:
-            start = k
-        elif match and start is not None:
+    """같은 종류의 연속된 비일치 정렬 항목을 묶은 정렬 인덱스 구간 [a0, a1).
+
+    공백 삽입·삭제와 문자 편집은 서로 다른 구간으로 나눈다(띄어쓰기 오류와 철자 오류는 다른 유형).
+    """
+    out, start, kind = [], None, None
+    for k, e in enumerate(A):
+        t = _entry_type(y, x, e)
+        if start is not None and t != kind:
             out.append((start, k))
             start = None
+        if t != "match" and start is None:
+            start, kind = k, t
     if start is not None:
         out.append((start, len(A)))
     return out
@@ -225,7 +250,12 @@ def align_pair(y: str, x: str, spans: Sequence[Span]) -> List[Region]:
         x_start = xj[0] if xj else _boundary(A, a0, 1, len(x))
         y_seg = "".join(y[i] for i in yi)
         x_seg = "".join(x[j] for j in xj)
-        kind = "spacing" if y_seg.replace(" ", "") == x_seg.replace(" ", "") else "edit"
+        if y_seg.replace(" ", "") == x_seg.replace(" ", ""):
+            kind = "spacing"
+        elif not any(ch.isalnum() for ch in y_seg + x_seg):
+            kind = "punct"
+        else:
+            kind = "edit"
         y_end = y_start + len(y_seg)
         morphs = [(s.form, s.tag) for s in spans if s.start < y_end and s.end > y_start] if y_seg.strip() else []
         regions.append(Region(y_start, y_end, x_start, x_start + len(x_seg), y_seg, x_seg, kind, morphs,
