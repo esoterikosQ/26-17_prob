@@ -28,6 +28,9 @@ class ECPair(NamedTuple):
     unit_id: str
     original: str
     corrected: str
+    form: str = ""        # original 에서 말뭉치 표식을 지운 정제본
+    device: str = ""      # 화자 입력 장치 (메신저 자료만)
+    keyboard: str = ""    # 화자 자판 종류 (메신저 자료만)
 
 
 def ec_files(data_dir: Path) -> list[Path]:
@@ -40,12 +43,15 @@ def iter_ec_pairs(paths: list[Path]) -> Iterator[ECPair]:
         with open(p, "rb") as f:
             for doc in ijson.items(f, "document.item"):
                 doc_id = doc.get("id", "")
+                speakers = {s.get("id"): s for s in (doc.get("metadata", {}).get("speaker") or [])}
                 units = doc.get("utterance") or doc.get("paragraph") or []
                 for u in units:
                     o = u.get("original_form")
                     c = u.get("corrected_form")
                     if o is not None and c is not None:
-                        yield ECPair(doc_id, u.get("id", ""), o, c)
+                        spk = speakers.get(u.get("speaker_id"), {})
+                        yield ECPair(doc_id, u.get("id", ""), o, c, u.get("form") or "",
+                                     spk.get("device") or "", spk.get("keyboard") or "")
 
 
 def mp_files(data_dir: Path) -> list[Path]:
