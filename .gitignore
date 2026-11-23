@@ -1,0 +1,29 @@
+# 공개 저장소: 라이선스 데이터·파생 데이터·저작권 PDF는 절대 올리지 않는다.
+
+# 원자료 (국립국어원 모두의 말뭉치, Kor-* GEC 데이터 등 — 재배포 금지)
+data/
+# 말뭉치 파생 데이터셋·정렬 결과·실험 출력 (문장 포함 → 파생물). 수치 요약만 문서에 적는다.
+datasets/
+outputs/
+# 논문·교재 PDF
+papers/
+paper/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# 빌드 산출물
+build/
+*.so
+
+# 가상환경·캐시
+.venv/
+venv/
+.cache/
+
+# OS
+.DS_Store
