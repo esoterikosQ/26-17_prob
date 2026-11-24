@@ -34,8 +34,8 @@ CATEGORIES = ("empty", "placeholder", "identical", "space_only", "punct_only",
               "space_punct", "content")
 
 
-def classify(x: str, y: str) -> str:
-    """(x, y) 쌍의 편집 층위.
+def classify(x: str, y: str, check_placeholder: bool = True) -> str:
+    """(x, y) 쌍의 편집 층위. ``check_placeholder``는 EC 말뭉치 표식 검사(다른 자료에서는 끈다).
 
     - empty: 어느 한쪽이 공백뿐
     - placeholder: 말뭉치 표식이 남아 있음
@@ -47,7 +47,7 @@ def classify(x: str, y: str) -> str:
     """
     if not x.strip() or not y.strip():
         return "empty"
-    if has_placeholder(x) or has_placeholder(y):
+    if check_placeholder and (has_placeholder(x) or has_placeholder(y)):
         return "placeholder"
     if x == y:
         return "identical"

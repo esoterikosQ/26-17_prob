@@ -31,3 +31,7 @@ def test_split_is_deterministic_and_balanced():
     assert abs(frac["train"] - 0.90) < 0.01
     assert abs(frac["dev"] - 0.05) < 0.01
     assert abs(frac["test"] - 0.05) < 0.01
+
+
+def test_placeholder_check_can_be_disabled():
+    assert classify("<책> 읽었다", "<책>을 읽었다.", check_placeholder=False) == "content"

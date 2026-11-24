@@ -43,7 +43,7 @@ def main() -> None:
                         m2_ok += 1
                         for e in m2[i].edits:
                             kagas_types[f"{name}_{split}"][e[2]] += 1
-                    cat = classify(x, y)
+                    cat = classify(x, y, check_placeholder=False)
                     cats[cat] += 1
                     rec = {"doc_id": name, "unit_id": f"{name}.{split}.{i}", "src": name, "genre": name,
                            "device": "", "keyboard": "", "x": x, "y": y, "cat": cat, "kagas": kagas}
