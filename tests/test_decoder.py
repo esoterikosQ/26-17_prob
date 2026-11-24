@@ -9,8 +9,13 @@ from hnc.jamo_channel import JamoChannel, estimate
 from hnc.morph import MorphAnalyzer
 from hnc.morph_lm import MorphLM
 
-EDITS = [{"a": ["ᆻ"], "b": ["ᆺ"], "c": 10}, {"a": ["<SP>"], "b": [], "c": 30}]
-ALPHAS = [{"a": ["ᆻ"], "c": 100}, {"a": ["<SP>"], "c": 100}, {"a": [], "c": 1000}]
+from hnc.jamo import ALPHABET
+
+# 실제 계수처럼 관측되지 않은 편집의 평활 확률이 아주 작도록 다른 자모의 빈도를 크게 둔다.
+EDITS = [{"a": ["ᆻ"], "b": ["ᆺ"], "c": 10}, {"a": ["<SP>"], "b": [], "c": 30},
+         {"a": [], "b": ["<SP>"], "c": 50}]
+ALPHAS = [{"a": [s], "c": 10 ** 6} for s in ALPHABET if s not in ("ᆻ", "<SP>")] + \
+    [{"a": ["ᆻ"], "c": 100}, {"a": ["<SP>"], "c": 100}, {"a": [], "c": 10 ** 5}]
 VOCAB = {"밥", "먹었어", "갔다", "집에"}
 FIX = Path(__file__).parent / "fixtures"
 
