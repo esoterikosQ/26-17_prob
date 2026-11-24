@@ -26,9 +26,9 @@
 | 맞춤법 교정 말뭉치 EC 2021·2022 | `phdq_noisy/data/NIKL_EC_*` | `data/` (전송) | 채널 학습·평가 (구어체 정규화·띄어쓰기·철자) |
 | 형태 분석 말뭉치 MP 2025 | `phdq_noisy/data/NIKL_MP_2025_v1.0` | `data/` (전송) | Kiwi 분석 대비 검증, 형태소 LM 보조 |
 | 신문 말뭉치 2024·2025 | `phdq_noisy/data/NIKL_NEWSPAPER_*` | `data/` (전송, 대용량) | 형태소 n-gram LM(A-2), 자모 빈도 |
-| Kor-Learner·Native·Lang8 (Yoon et al. 2023) | — | (미정) | 채널 학습·평가, $z$ 지도·평가 |
+| Kor-Learner·Native·Lang8 (Yoon et al. 2023) | itcerdo `~/projects/phdq_bart/data/Preprocessed` (사용자 허락, 2026-11-24) | `data/kor_gec/` (복사) | 채널 학습·평가(GEC 본 평가셋), $z$ 자동 지도(KAGAS 유형) |
 
-- Kor-* 데이터는 itcerdo의 다른 프로젝트 디렉토리에 이미 있을 수 있으나, 지정 디렉토리 밖이므로 **사용자 허락 없이 접근하지 않는다**.
+- Kor-*는 저자 분할을 그대로 쓴다(`datasets/kor_gec/<name>_{train,dev,test}.jsonl`, `scripts/build_kor_gec.py`). M²의 오류유형은 KAGAS **자동** 주석이다. 사람 주석(국립국어원 학습자 말뭉치 XML)은 아직 없다 → $z$ 정확도의 금 표준은 별도 확보 필요.
 
 ## 3. Phase
 
@@ -63,7 +63,7 @@
 
 ## 4. 열린 질문
 
-1. Kor-Learner·Native·Lang8 데이터의 확보 경로 (itcerdo 기존 사본 사용 허락 또는 별도 전송).
+1. ~~Kor-* 확보 경로~~ → 해결(itcerdo 사본 복사). 남은 것: $z$ 평가용 **사람 주석**(국립국어원 학습자 말뭉치 원본 XML) 확보 여부.
 2. EC의 문장부호·이모지 편집을 채널 학습에 포함할지 (GEC 평가 관행과 맞출 것).
 3. `realize(analyze(y)) != y`인 문장의 처리. **제안**: (a) 정렬(A-0d)은 $R(m)$이 아니라 $y$의 표층과 Kiwi 형태소 위치(span)로 직접 한다 — $y$의 표층은 이미 주어져 있으므로 $R$이 필요 없다. (b) $R$은 함수가 아닌 **가중 관계** $P(\text{표층} \mid m)$로 둔다(축약형·비축약형 대안을 모두 내고 확률은 말뭉치 빈도로 추정, WFST로 구현). 이렇게 하면 축약 선택이 오류가 아닌 변이로 처리되고, 후보 생성 때 두 형태가 모두 제안된다. (c) 한글 외 문자 뒤 이형태는 앞 문자 정보를 $R$의 문맥으로 넘긴다.
 4. 한글 외 문자(숫자·라틴)를 자모 채널에서 어떻게 다룰지 (원문자 심볼 vs 클래스 심볼).
