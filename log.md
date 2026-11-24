@@ -247,3 +247,9 @@ python -c "import kenlm; m=kenlm.Model('outputs/kenlm/smoke.bin'); print(m.score
 ```
 
 - 결과: `lmplz`·`build_binary`·`query` 빌드 성공(약 2분), 시험 3-gram 학습·이진화·Python 질의 정상(정상 어순 −14.83 > 뒤섞은 어순 −15.99). 임시 파일은 저장소 안에만 생기고 정리됨. → A-1d·A-2 진행 가능.
+
+### 18:51–18:55 · DKMS 실패 원인 확정, 장기 대응 정정 [itcerdo, 조회만]
+
+- 사용자가 `sudo tail -n 40 /var/lib/dkms/nvidia/570.124.04/build/make.log` 결과를 공유. 실패 지점: `nvidia/nv-pci.c:240` — 드라이버가 `pci_resize_resource(pci_dev, NV_GPU_BAR1, requested_size)`를 인자 3개로 호출하나, 6.8.0-149 헤더(`include/linux/pci.h:1445`)의 선언은 인자가 하나 더 있음(`too few arguments`). → Ubuntu 6.8 커널 갱신에 들어온 커널 API 변경을 570.124.04 소스가 따라가지 못함. `nv_encode_caching` 메시지는 경고로 실패 원인 아님. DKMS 재빌드로는 해결 불가, 드라이버 교체 필요.
+- 조회: `apt-cache policy linux-modules-nvidia-*-6.8.0-149-generic` → 6.8.0-149용 사전 빌드 모듈은 **580-open만 있음**(`linux-modules-nvidia-580-open-6.8.0-149-generic` 6.8.0-149.149). 570-open은 이 커널용 사전 빌드본이 없음.
+- 정정: 장기 대응은 `.run` 드라이버 제거 후 **`nvidia-driver-580-open` + 사전 빌드 커널 모듈**로 교체(재부팅 필요, GPU 작업이 없을 때). 즉시 조치(6.8.0-149 제거, 139 유지)는 그대로.
