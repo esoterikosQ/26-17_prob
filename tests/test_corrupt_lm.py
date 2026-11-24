@@ -18,9 +18,11 @@ def test_corruptions():
     rng = random.Random(0)
     assert corrupt(S, "case_swap", rng)[3] == ("가", "JKS", False)      # 사과(받침 없음) + 가
     d = corrupt(S, "particle_del", rng)
-    assert len(d) == len(S) - 1 and all(t not in ("JX", "JKO") for _, t, _ in d[:2]) or len(d) == len(S) - 1
+    assert len(d) == len(S) - 1 and sum(t in ("JX", "JKO") for _, t, _ in d) == 1
     sw = corrupt(S, "eojeol_swap", rng)
-    assert len(eojeols(sw)) == 3 and sw[0][2] is False and sorted(sw) == sorted(
-        [(f, t, s) for f, t, s in sw])
+    groups = eojeols(sw)
+    assert len(groups) == 3 and sw != S
+    assert sorted(f for f, _, _ in sw) == sorted(f for f, _, _ in S)
+    assert sw[0][2] is False and all(g[0][2] for g in groups[1:])
     assert corrupt(S, "final_ec", rng)[6] == ("고", "EC", False)
     assert corrupt([("네", "IC", False)], "case_swap", rng) is None
