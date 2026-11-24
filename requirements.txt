@@ -1,3 +1,4 @@
 kiwipiepy
 ijson
 pytest
+pynini
