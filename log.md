@@ -385,3 +385,20 @@ python scripts/decode.py --set native --split dev --workers 12 --lam-lm 0.5,1,1.
 | 3.0 | 2,146 | .714 / .535 / .669 (.671) | .565 (.605) |
 
 - 해석: (1) 전체 F0.5 최고 0.679 → **0.693**(+1.4, 정밀도 .825) — EM이 문맥 의존 편집(구어체 어미 등)을 강화해 정답의 다른 유형 교정이 늘어남. (2) WS+SPELL 기준은 0.621 → 0.598로 하락(그 범위 밖 교정이 오탐으로 집계). (3) held-out 우도 하락과 교정 성능 향상이 엇갈림 → 긴 조각 퇴화를 다스리는 방법(조각 길이 사전분포, 단일 자모 EM + 문맥 편집 분리, 설계서 A-6의 희소 디리클레 VB)은 후속 과제. 우선 전체 F0.5 기준으로 EM 채널(`ec2_native_em`)을 기본으로 쓴다.
+
+### 23:00–23:25 · EC dev 정답 M² 생성(KAGAS)·평가 [gsm, itcerdo]
+
+- 작업: KAGAS 전용 환경 `.venv-kagas`(저장소 안, git 제외; `hunspell spacy tqdm konlpy soylemma soynlp jamo`, 시스템 Java 21·libhunspell-dev 사용) — 저자 샘플 정상(WS·INSERTION 유형). `scripts/make_ec_gold.py`: EC dev 2벌식 무작위 5,000쌍(범주 무관, 공백 정규화) → KAGAS → `datasets/ec_gold/ec2_dev5k/gold.m2`. `decode.py`에 `--records/--gold-m2`.
+  - 실패 1: venv python 경로에 `resolve()`를 써서 심볼릭 링크가 시스템 python으로 풀림 → `ModuleNotFoundError: spacy` → `absolute()`로 수정.
+  - 실패 2: KAGAS의 Kkma(KoNLPy/JPype)가 BMP 밖 문자(이모지)에서 `UnicodeDecodeError`로 1,000문장 뒤 중단 → BMP 밖 문자가 든 쌍을 표본에서 제외(5쌍).
+- 결과: 정답 M² 5,000블록(KAGAS 53 s). 범주: 내용 1,178 / 띄어쓰기+부호 1,430 / 부호 1,168 / 띄어쓰기 488 / 동일 736. 정답 편집: INSERTION 2,866(주로 문장 끝 부호), PUNCT 2,316, WS 1,692, UNCLASSIFIED 1,402, CONJUGATION 873, noop 760, NOUN 242, SPELL 140 … → **편집의 절반 이상이 부호(A-1 범위 밖).**
+- 디코딩(문장당 0.08–0.14 s):
+
+| 채널 | λ_LM | 바뀐 문장 | 전체 P / R / F0.5 | WS+SPELL P / R / F0.5 |
+|---|---:|---:|---|---|
+| Brill–Moore | 0.5 | 1,895 | .649 / .229 / .475 | .479 / .608 / **.500** |
+| Brill–Moore | 2.0 | 2,344 | .616 / .282 / **.498** | .436 / .716 / .473 |
+| EM | 0.5 | 1,667 | .655 / .194 / .444 | .494 / .542 / **.503** |
+| EM | 1.5 | 2,252 | .613 / .265 / **.485** | .436 / .688 / .471 |
+
+- 해석: (1) 전체 재현율이 낮은 것은 부호 편집이 범위 밖이기 때문. (2) **EC에서는 Brill–Moore 채널이 EM보다 전체 F0.5가 약간 높음**(.498 vs .485) — Native(EM .693 > BM .679)와 반대, held-out 우도 하락과 부합 → EM 채널을 일괄 기본으로 쓰는 결정은 보류, 자료별로 비교해 보고.
