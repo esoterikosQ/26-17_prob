@@ -63,6 +63,7 @@ def main() -> None:
     ap.add_argument("--data", type=Path, default=Path("data"))
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--news-limit", type=int, default=0, help="신문 문단 수 제한(0=전체)")
+    ap.add_argument("--no-news", action="store_true", help="신문 말뭉치를 쓰지 않음")
     ap.add_argument("--batch", type=int, default=20000)
     args = ap.parse_args()
     out = Path("datasets/lm") / args.tag
@@ -86,7 +87,8 @@ def main() -> None:
         write_units(f, _jsonl_y(Path("datasets/ec/train.jsonl")), "ec_train")
         for name in kor:
             write_units(f, _jsonl_y(Path(f"datasets/kor_gec/{name}_train.jsonl")), f"{name}_train")
-        for batch in _batches(_news_paragraphs(args.data, args.news_limit), args.batch):
+        news = [] if args.no_news else _news_paragraphs(args.data, args.news_limit)
+        for batch in _batches(news, args.batch):
             for para, sents in zip(batch, kiwi.split_into_sents(batch, return_tokens=True)):
                 stats["news_paragraphs"] += 1
                 for s in sents:
