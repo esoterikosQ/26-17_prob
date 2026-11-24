@@ -402,3 +402,24 @@ python scripts/decode.py --set native --split dev --workers 12 --lam-lm 0.5,1,1.
 | EM | 1.5 | 2,252 | .613 / .265 / **.485** | .436 / .688 / .471 |
 
 - 해석: (1) 전체 재현율이 낮은 것은 부호 편집이 범위 밖이기 때문. (2) **EC에서는 Brill–Moore 채널이 EM보다 전체 F0.5가 약간 높음**(.498 vs .485) — Native(EM .693 > BM .679)와 반대, held-out 우도 하락과 부합 → EM 채널을 일괄 기본으로 쓰는 결정은 보류, 자료별로 비교해 보고.
+
+### 23:25–23:40 · B안식 PCFG 재채점, n-best 오라클(B-0), PCFG 한계기여(B-5) [gsm, itcerdo]
+
+- 작업: 디코더에 n-best(최종 빔, 서로 다른 출력, 성분 점수 LM·채널·형태소 수) 추가(`search_nbest`, 테스트 1개 추가). `scripts/rescore.py` — n-best(8)의 각 가설을 Kiwi로 분석해 `phdq_pcfg2`의 `PCFGScorer`(K5)로 비터비 로그확률을 붙이고, 점수 = λ_LM·LM − 채널 + λ_P·PCFG로 다시 골라 m2scorer 채점. 오라클 = 문장마다 정답 교정문과 문자 유사도가 가장 높은 가설. `--from-nbest`로 저장된 n-best에서 격자만 다시.
+
+```bash
+python scripts/rescore.py --set native --split dev --channel datasets/channel/ec2_native_em --base-lam-lm 1.0 --nbest 8 --tag native_em
+python scripts/rescore.py --records datasets/ec_gold/ec2_dev5k/records.jsonl --gold-m2 datasets/ec_gold/ec2_dev5k/gold.m2 --channel datasets/channel/ec2_native --base-lam-lm 1.0 --nbest 8 --lam-lm 1,1.5,2,3 --tag ec2_dev5k_bm
+python scripts/rescore.py ... --from-nbest --lam-pcfg 0.3,0.5,0.75,1,1.5,2     # 격자 확장
+```
+
+- 결과: n-best 생성·PCFG 채점 Native 2,634문장 45 s(가설 평균 8.0, PCFG 정상 파스 99.0%), EC 5,000문장 41 s(가설 7.1, 정상 파스 94.5%).
+
+| 집합 (채널) | n-best 오라클 F0.5 | 재채점 PCFG 없음 (λ_P=0) | 최고 (λ_LM, λ_P) | **PCFG 한계기여** |
+|---|---:|---:|---|---:|
+| Kor-Native dev (EM) | **0.810** (P .869 R .635) | 0.692 (λ_LM 0.5) | **0.717** (0.5, 0.5; P .830 R .465) | **+2.5** |
+| EC dev 5k (BM) | 0.558 (P .660 R .345) | 0.498 (λ_LM 2) | 0.502 (2, 0.2–0.3) | +0.3 |
+
+  - Native, λ_LM = 0.5에서 λ_P: 0 → .692, 0.1 → .704, 0.3 → .713, **0.5 → .717**, 0.75 → .715, 1 → .709, 2 → .693.
+  - WS+SPELL F0.5도 Native에서 .598 → .600–.602로 소폭 상승.
+- 해석: (1) **B-0 관문 통과** — n-best 오라클이 1-best보다 훨씬 높아(Native .81 vs .69) 재순위화 여지가 큼. (2) **강한 형태소 LM 위에서도 PCFG가 실제 이득**(Native +2.5점) — 설계서 B-5 질문의 첫 실측. 메신저 구어체(EC)에서는 이득이 작음(+0.3) — PCFG가 신문·구어 DP로 학습됐고 EC 오류의 다수가 띄어쓰기·부호라 구조 판단의 몫이 작음. (3) λ는 dev에서 고른 값(낙관적) → test에서 한 번만 최종 비교.
