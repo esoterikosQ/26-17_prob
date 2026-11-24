@@ -74,6 +74,11 @@
 - **A-1의 사전확률**: 형태소 n-gram(A-2) 전 단계이므로 음절+공백 n-gram(문자 LM)을 쓴다. 학습 자료는 EC·Kor-* train의 교정문 + (전송 후) 신문 말뭉치.
 - **도구 제약 (확인 2026-11-24)**: KenLM 질의 모듈(`pip install kenlm`)은 쓸 수 있으나 추정기 `lmplz`는 Boost 개발 패키지가 없어 빌드 불가, OpenGrm 없음. 선택지: (1) 사용자가 `sudo apt install libboost-program-options-dev libboost-system-dev libboost-thread-dev libboost-test-dev libeigen3-dev`로 설치 후 KenLM 빌드, (2) 저장소 안에 Boost를 직접 빌드, (3) 수정 Kneser–Ney 추정을 직접 구현해 ARPA로 내보내고 KenLM 질의 모듈·Pynini로 읽음. → **결정(2026-11-24): (1)** — 사용자가 Boost 설치 후 KenLM을 저장소 안(`tools/kenlm`)에 빌드. A-1은 A-0d 검수 전에 진행.
 
+### A-2 — 형태소 n-gram LM (KenLM)
+- 토큰 `▁형태/품사`(어절 첫 형태소 표시, PCFG 말단과 같은 경계 표시), Kiwi 분석. 학습: EC·Kor-* train 교정문 + 신문 2024·2025. 평가: dev 퍼플렉시티 + 오류 주입 판별력(LM·PCFG·합).
+- **상태 (2026-11-24)**: v0(영역 내 1,450만 토큰, 5-gram)·v1(신문 포함 11.2억 토큰, 5-gram, 가지치기 0 1 2, 8비트 trie 1.14 GB) 완료. v1은 퍼플렉시티가 나빠졌으나(영역 불일치) 판별력은 16개 중 13개 항목에서 향상. LM이 모든 오류 종류에서 PCFG보다 강하고, PCFG는 조사 삭제·어순에서 더해 주는 몫이 있음.
+- 다음: v0·v1 토큰 단위 보간(가중치 dev 튜닝), λ(LM·PCFG·길이) 조정.
+
 ## 4. 열린 질문
 
 1. ~~Kor-* 확보 경로~~ → 해결(itcerdo 사본 복사). 남은 것: $z$ 평가용 **사람 주석**(국립국어원 학습자 말뭉치 원본 XML) 확보 여부.
