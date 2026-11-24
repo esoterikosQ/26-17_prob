@@ -92,6 +92,8 @@ def main() -> None:
     ap.add_argument("--set", default="native")
     ap.add_argument("--split", default="dev")
     ap.add_argument("--n", type=int, default=0, help="앞에서부터 n문장(0=전체)")
+    ap.add_argument("--records", type=Path, default=None, help="입력 레코드(jsonl, x 필드); 주면 --set/--split 대신")
+    ap.add_argument("--gold-m2", type=Path, default=None, help="--records와 함께 쓸 정답 M²")
     ap.add_argument("--lm", type=Path, default=Path("datasets/lm/v1/lm5.bin"))
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
@@ -118,9 +120,12 @@ def main() -> None:
     print(json.dumps({"load_sec": round(time.time() - t0, 1), "vocab": len(vocab),
                       "reverse_edit_keys": len(_DEC.gen.rev), "configs": len(_CFGS)}), flush=True)
 
-    with open(Path("datasets/kor_gec") / f"{args.set}_{args.split}.jsonl", encoding="utf-8") as f:
+    rec_path = args.records or Path("datasets/kor_gec") / f"{args.set}_{args.split}.jsonl"
+    gold_path = args.gold_m2 or Path("data/kor_gec") / args.set / f"{args.set}_{SPLIT_FILE[args.split]}.m2"
+    with open(rec_path, encoding="utf-8") as f:
         xs = [json.loads(line)["x"] for line in f]
-    gold_all = m2_blocks(Path("data/kor_gec") / args.set / f"{args.set}_{SPLIT_FILE[args.split]}.m2")
+    gold_all = m2_blocks(gold_path)
+    assert len(gold_all) == len(xs), (len(gold_all), len(xs))
     if args.n:
         xs, gold_all = xs[:args.n], gold_all[:args.n]
     write_m2(gold_all, out / "gold_all.m2")
