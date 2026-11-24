@@ -71,7 +71,7 @@
 | A-1e | 평가: EC dev(space_only·content), Kor-Native dev의 WS·SPELL 유형에 대해 M²(KAGAS) P/R/F0.5 | F0.5 표 | 완료 기준 |
 
 - **A-1의 사전확률**: 형태소 n-gram(A-2) 전 단계이므로 음절+공백 n-gram(문자 LM)을 쓴다. 학습 자료는 EC·Kor-* train의 교정문 + (전송 후) 신문 말뭉치.
-- **도구 제약 (확인 2026-11-24)**: KenLM 질의 모듈(`pip install kenlm`)은 쓸 수 있으나 추정기 `lmplz`는 Boost 개발 패키지가 없어 빌드 불가, OpenGrm 없음. 선택지: (1) 사용자가 `sudo apt install libboost-program-options-dev libboost-system-dev libboost-thread-dev libboost-test-dev libeigen3-dev`로 설치 후 KenLM 빌드, (2) 저장소 안에 Boost를 직접 빌드, (3) 수정 Kneser–Ney 추정을 직접 구현해 ARPA로 내보내고 KenLM 질의 모듈·Pynini로 읽음. → 사용자 결정 필요.
+- **도구 제약 (확인 2026-11-24)**: KenLM 질의 모듈(`pip install kenlm`)은 쓸 수 있으나 추정기 `lmplz`는 Boost 개발 패키지가 없어 빌드 불가, OpenGrm 없음. 선택지: (1) 사용자가 `sudo apt install libboost-program-options-dev libboost-system-dev libboost-thread-dev libboost-test-dev libeigen3-dev`로 설치 후 KenLM 빌드, (2) 저장소 안에 Boost를 직접 빌드, (3) 수정 Kneser–Ney 추정을 직접 구현해 ARPA로 내보내고 KenLM 질의 모듈·Pynini로 읽음. → **결정(2026-11-24): (1)** — 사용자가 Boost 설치 후 KenLM을 저장소 안(`tools/kenlm`)에 빌드. A-1은 A-0d 검수 전에 진행.
 
 ## 4. 열린 질문
 
