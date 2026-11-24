@@ -97,3 +97,28 @@ def substring_counts(syms: Sequence[str], max_len: int = 3) -> Counter:
             if i + k <= n:
                 c[tuple(syms[i:i + k])] += 1
     return c
+
+
+def atom_windows(ops: Sequence[Op], max_len: int = 3, context: int = 1,
+                 stats: Counter | None = None) -> Iterator[Tuple[Sym, Sym]]:
+    """A-1c EM용 국소 창: 범위 안·길이 이내 덩어리마다 좌우 ``context``개 문맥을 붙인 (y 창, x 창).
+
+    문맥 연산이 범위 밖 기호면 그쪽 문맥은 붙이지 않는다. 덩어리 분류는 ``substring_edits``와 같다.
+    """
+    n = len(ops)
+    for a, b in atoms(ops):
+        core_a, core_b = _sides(ops, a, b)
+        if not all(_in_scope(s) for s in core_a + core_b):
+            if stats is not None:
+                stats["atom_other"] += 1
+            continue
+        if len(core_a) > max_len or len(core_b) > max_len:
+            if stats is not None:
+                stats["atom_long"] += 1
+            continue
+        lo, hi = a, b
+        while lo > max(a - context, 0) and _in_scope(ops[lo - 1][1]):
+            lo -= 1
+        while hi < min(b + context, n) and _in_scope(ops[hi][1]):
+            hi += 1
+        yield _sides(ops, lo, hi)

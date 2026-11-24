@@ -51,3 +51,10 @@ def test_substring_counts():
 def test_context_must_be_in_scope():
     edits = list(substring_edits(_ops("갔!", "갓!")))
     assert edits and all("!" not in a + b for a, b, _ in edits)
+
+
+def test_atom_windows():
+    from hnc.channel_edits import atom_windows
+    assert list(atom_windows(_ops("갔다", "갓다"))) == [(("ᅡ", "ᆻ", "ᄃ"), ("ᅡ", "ᆺ", "ᄃ"))]
+    # 범위 밖 기호(!)는 문맥으로 붙이지 않는다
+    assert list(atom_windows(_ops("갔!", "갓!"))) == [(("ᅡ", "ᆻ"), ("ᅡ", "ᆺ"))]
