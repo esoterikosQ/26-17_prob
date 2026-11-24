@@ -70,7 +70,8 @@
 | A-1d | $T_J$를 Pynini WFST로 구성(편집 union의 closure), 역방향으로 x의 자모 격자 생성 → 사전확률 결합 → n-best | 디코더 | 합성셋·EC dev에서 동작 |
 | A-1e | 평가: EC dev(space_only·content), Kor-Native dev의 WS·SPELL 유형에 대해 M²(KAGAS) P/R/F0.5 | F0.5 표 | 완료 기준 |
 
-- **상태 (2026-11-24)**: A-1a 완료(EC 2벌식 + Native 911,836쌍, 핵심 편집 5,653종, 3자모 초과 덩어리 0.8%). A-1b 완료(편집 21,227개, dev 8,634쌍 전부 유한, 띄어쓰기 교정 채널 비용 중앙값 1.4 nats). 다음: A-1c EM, 채점 속도 개선, A-1d 디코더. KenLM은 `tools/kenlm`에 빌드 완료(2026-11-24 18:50).
+- **상태 (2026-11-24)**: A-1a 완료(EC 2벌식 + Native 911,836쌍, 핵심 편집 5,653종, 3자모 초과 덩어리 0.8%). A-1b 완료(편집 21,227개, dev 8,634쌍 전부 유한, 띄어쓰기 교정 채널 비용 중앙값 1.4 nats). A-1d 디코더(어절 후보 생성 + 형태소 LM 빔 탐색, 사용자 승인) 완료, A-1e: **Kor-Native dev F0.5 0.671(전체) / 0.631(WS+SPELL)** → A-1 완료 기준 충족. KenLM은 `tools/kenlm`.
+- 다음: A-1c EM 재추정, 디코더 속도 개선(문장당 3 s), EC dev 정답 M²(KAGAS) 생성 후 평가, Kor-Learner·Lang8 dev 참고 평가, PCFG 재채점(B-5식 λ)·형태소 채널(A-3).
 - **A-1의 사전확률**: 형태소 n-gram(A-2) 전 단계이므로 음절+공백 n-gram(문자 LM)을 쓴다. 학습 자료는 EC·Kor-* train의 교정문 + (전송 후) 신문 말뭉치.
 - **도구 제약 (확인 2026-11-24)**: KenLM 질의 모듈(`pip install kenlm`)은 쓸 수 있으나 추정기 `lmplz`는 Boost 개발 패키지가 없어 빌드 불가, OpenGrm 없음. 선택지: (1) 사용자가 `sudo apt install libboost-program-options-dev libboost-system-dev libboost-thread-dev libboost-test-dev libeigen3-dev`로 설치 후 KenLM 빌드, (2) 저장소 안에 Boost를 직접 빌드, (3) 수정 Kneser–Ney 추정을 직접 구현해 ARPA로 내보내고 KenLM 질의 모듈·Pynini로 읽음. → **결정(2026-11-24): (1)** — 사용자가 Boost 설치 후 KenLM을 저장소 안(`tools/kenlm`)에 빌드. A-1은 A-0d 검수 전에 진행.
 
