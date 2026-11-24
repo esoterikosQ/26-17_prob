@@ -43,6 +43,7 @@ class DecoderConfig:
     expand_top: int = 20
     scan_top: int = 3000
     exact_channel: bool = False
+    max_pure_ins: int = 8      # 문맥 없는 순수 삽입(β = ∅)은 비용 상위 몇 개만 (문맥 붙은 형태는 따로 있음)
     k_cand: int = 8
     beam: int = 8
     lam_lm: float = 1.0
@@ -74,7 +75,7 @@ class CandidateGenerator:
                 delta = -math.log(p) - sum(self.idc.get(s, 0.0) for s in b)
                 self.rev.setdefault(b, []).append((a, delta))
         self.max_b = max((len(b) for b in self.rev), default=0)
-        self._ins = self.rev.get((), [])
+        self._ins = sorted(self.rev.get((), []), key=lambda ad: ad[1])[:self.cfg.max_pure_ins]
         self._cache: Dict[str, List[Tuple[str, float]]] = {}
 
     def _apply_once(self, xs: Sym, mask: Tuple[bool, ...]):
