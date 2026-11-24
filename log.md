@@ -345,8 +345,8 @@ tmux new-session -d -s prob-a1d "python scripts/decode.py --set native --split d
 
 - 검수 파일을 gsm으로 복사(사용자 요청): `phdq_prob/outputs/a0d/inspect.md`(EC 200쌍), `outputs/a0d_kor/inspect_{korean_learner,native,lang8}.md`(각 50쌍). `outputs/`는 git 제외(말뭉치 문장 포함).
 - 프로파일(30문장, 단일 프로세스 80.7 s): 역편집 열거 47%, 채널 WFST 정확 채점 21%(호출당 9 ms), 상위 선택·사전 갱신 약 20%, Kiwi 0.6%.
-- 개선 ①(`…`): 이미 편집된 자모는 다시 편집하지 않음(겹치지 않는 분할), 후보 비용을 **분할 비용**(바뀌지 않은 자모의 동일 비용 + 편집 비용; WFST 최단 거리의 상한)으로 직접 계산해 디코딩 중 WFST 호출 제거(`exact_channel` 옵션으로 유지), 2단계 확장 상위 40 → 20. → 30문장 42.5 s.
-- 개선 ②: 문맥 없는 순수 삽입(β = ∅) 101개를 모든 경계에 넣던 것을 비용 상위 8개로 제한(`<SP>`·`<SP><SP>` 등; 같은 패턴의 문맥 붙은 형태는 제자리에서만 적용됨). → 100문장 문장당 0.57 s.
+- 개선 ①(`93e2697`): 이미 편집된 자모는 다시 편집하지 않음(겹치지 않는 분할), 후보 비용을 **분할 비용**(바뀌지 않은 자모의 동일 비용 + 편집 비용; WFST 최단 거리의 상한)으로 직접 계산해 디코딩 중 WFST 호출 제거(`exact_channel` 옵션으로 유지), 2단계 확장 상위 40 → 20. → 30문장 42.5 s.
+- 개선 ②(`be9e1b4`): 문맥 없는 순수 삽입(β = ∅) 101개를 모든 경계에 넣던 것을 비용 상위 8개로 제한(`<SP>`·`<SP><SP>` 등; 같은 패턴의 문맥 붙은 형태는 제자리에서만 적용됨). → 100문장 문장당 0.57 s.
 
 ```bash
 python scripts/decode.py --set native --split dev --workers 12 --lam-lm 0.5,1,1.5,2,3 --lam-len 0 --tag native_v1_fast
