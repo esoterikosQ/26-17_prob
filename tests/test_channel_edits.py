@@ -46,3 +46,8 @@ def test_out_of_scope_atoms_are_counted_not_emitted():
 def test_substring_counts():
     c = substring_counts(["a", "b"], max_len=3)
     assert c == Counter({(): 3, ("a",): 1, ("b",): 1, ("a", "b"): 1})
+
+
+def test_context_must_be_in_scope():
+    edits = list(substring_edits(_ops("갔!", "갓!")))
+    assert edits and all("!" not in a + b for a, b, _ in edits)

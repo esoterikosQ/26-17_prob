@@ -81,7 +81,9 @@ def substring_edits(ops: Sequence[Op], max_len: int = 3, context: int = 1,
                 if lo < 0 or hi > len(ops):
                     continue
                 alpha, beta = _sides(ops, lo, hi)
-                if len(alpha) <= max_len and len(beta) <= max_len:
+                # 문맥으로 붙는 자모도 범위 안(한글 자모·<SP>)이어야 한다 (줄바꿈·부호 문맥 제외).
+                if len(alpha) <= max_len and len(beta) <= max_len and \
+                        all(_in_scope(s) for s in alpha + beta):
                     yield alpha, beta, left == 0 and right == 0
 
 
