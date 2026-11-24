@@ -70,19 +70,21 @@ def main() -> None:
     ap.add_argument("--pcfg-root", type=Path, default=Path.home() / "projects/phdq_pcfg2")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--tag", default="native_em_rescore")
+    ap.add_argument("--from-nbest", action="store_true", help="outputs/rescore/<tag>/nbest.jsonl을 다시 쓰고 디코딩·PCFG 채점은 건너뜀")
     args = ap.parse_args()
     out = Path("outputs/rescore") / args.tag
     out.mkdir(parents=True, exist_ok=True)
 
-    params = ChannelParams.from_json((args.channel / "params.json").read_text(encoding="utf-8"))
-    others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
-    base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm)
-    _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min), JamoChannel(params, others),
-                                      base), MorphLM(args.lm), MorphAnalyzer(), base)
-    _CFG, _NB = base, args.nbest
-    sys.path.insert(0, str(args.pcfg_root))
-    from pcfg.score import PCFGScorer
-    _PCFG = PCFGScorer.load(args.pcfg_root / "data/models/pcfg_best.pkl")
+    if not args.from_nbest:
+        params = ChannelParams.from_json((args.channel / "params.json").read_text(encoding="utf-8"))
+        others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
+        base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm)
+        _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min),
+                                          JamoChannel(params, others), base), MorphLM(args.lm), MorphAnalyzer(), base)
+        _CFG, _NB = base, args.nbest
+        sys.path.insert(0, str(args.pcfg_root))
+        from pcfg.score import PCFGScorer
+        _PCFG = PCFGScorer.load(args.pcfg_root / "data/models/pcfg_best.pkl")
 
     rec_path = args.records or Path("datasets/kor_gec") / f"{args.set}_{args.split}.jsonl"
     gold_path = args.gold_m2 or Path("data/kor_gec") / args.set / f"{args.set}_{SPLIT_FILE[args.split]}.m2"
@@ -94,12 +96,16 @@ def main() -> None:
     write_m2(gold, out / "gold_a1.m2", A1_TYPES)
 
     t0 = time.time()
-    with mp.get_context("fork").Pool(args.workers) as pool:
-        res = sorted(pool.imap_unordered(_work, list(enumerate(r["x"] for r in recs)), chunksize=4))
+    if args.from_nbest:
+        with open(out / "nbest.jsonl", encoding="utf-8") as f:
+            res = [(r["i"], r["hyps"]) for r in map(json.loads, f)]
+    else:
+        with mp.get_context("fork").Pool(args.workers) as pool:
+            res = sorted(pool.imap_unordered(_work, list(enumerate(r["x"] for r in recs)), chunksize=4))
+        with open(out / "nbest.jsonl", "w", encoding="utf-8") as f:
+            for i, hyps in res:
+                f.write(json.dumps({"i": i, "hyps": hyps}, ensure_ascii=False) + "\n")
     wall = time.time() - t0
-    with open(out / "nbest.jsonl", "w", encoding="utf-8") as f:
-        for i, hyps in res:
-            f.write(json.dumps({"i": i, "hyps": hyps}, ensure_ascii=False) + "\n")
 
     def evaluate(choose, name):
         hyp = out / f"hyp_{name}.txt"
@@ -123,7 +129,8 @@ def main() -> None:
     summary = {"sents": len(recs), "wall_sec": round(wall, 1), "nbest": args.nbest, "base_lam_lm": args.base_lam_lm,
                "mean_hyps": round(n_hyps / len(res), 2), "pcfg_parse_rate": round(n_parsed / n_hyps, 4),
                "oracle": oracle_rows, "grid": rows}
-    (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    name = "summary_regrid.json" if args.from_nbest else "summary.json"
+    (out / name).write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
 
 
