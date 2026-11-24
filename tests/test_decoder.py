@@ -49,3 +49,11 @@ def test_decoder_corrects_spacing_and_spelling(dec):
 def test_decoder_keeps_when_lm_weight_zero(dec):
     cfg = DecoderConfig(lam_lm=0.0)
     assert dec.decode("집에 갓다", cfg) == "집에 갓다"           # 사전확률이 없으면 채널은 원문을 선호
+
+
+def test_nbest_sorted_and_consistent(dec):
+    x = "집에 갓다."
+    nb = dec.search_nbest(x, dec.prepare(x), n_best=4)
+    assert nb[0].text == dec.decode(x) == "집에 갔다."
+    assert [h.score for h in nb] == sorted((h.score for h in nb), reverse=True)
+    assert len({h.text for h in nb}) == len(nb) and all(h.n_morph > 0 for h in nb)

@@ -152,6 +152,18 @@ class _Hyp:
     score: float
     state: object
     out: Tuple[str, ...]
+    lm: float = 0.0       # log P_LM (자연로그)
+    ch: float = 0.0       # 채널 비용(구간 사이 공백 포함)
+    nm: int = 0           # 형태소 수
+
+
+@dataclass
+class NBest:
+    text: str
+    score: float
+    lm: float
+    ch: float
+    n_morph: int
 
 
 class Decoder:
@@ -208,10 +220,15 @@ class Decoder:
         return self.search(x, self.prepare(x), cfg)
 
     def search(self, x: str, prep, cfg: Optional[DecoderConfig] = None) -> str:
+        nb = self.search_nbest(x, prep, cfg, 1)
+        return nb[0].text if nb else x
+
+    def search_nbest(self, x: str, prep, cfg: Optional[DecoderConfig] = None, n_best: int = 8) -> List[NBest]:
+        """최종 빔의 상위 ``n_best`` 가설(문장 끝 점수 포함, 서로 다른 출력만)과 성분 점수."""
         cfg = cfg or self.cfg
         n = len(x.split())
         if n == 0:
-            return x
+            return [NBest(x, 0.0, 0.0, 0.0, 0)]
         start = self._kenlm.State()
         self.lm.model.BeginSentenceWrite(start)
         beams: List[List[_Hyp]] = [[] for _ in range(n + 1)]
@@ -226,11 +243,14 @@ class Decoder:
                         lm, st = self._lm_extend(h.state, toks_y)
                         sp = self.sp_cost if i > 0 else 0.0
                         s = h.score + cfg.lam_lm * lm - cfg.lam_ch * (ch + sp) + cfg.lam_len * len(toks_y)
-                        beams[i + L].append(_Hyp(s, st, h.out + (y,)))
-        best = None
+                        beams[i + L].append(_Hyp(s, st, h.out + (y,), h.lm + lm, h.ch + ch + sp,
+                                                 h.nm + len(toks_y)))
+        finals = {}
         for h in beams[n]:
             end = self._kenlm.State()
-            s = h.score + cfg.lam_lm * self.lm.model.BaseScore(h.state, "</s>", end) * LN10
-            if best is None or s > best[0]:
-                best = (s, h)
-        return " ".join(best[1].out) if best else x
+            e = self.lm.model.BaseScore(h.state, "</s>", end) * LN10
+            text = " ".join(h.out)
+            cand = NBest(text, h.score + cfg.lam_lm * e, h.lm + e, h.ch, h.nm)
+            if text not in finals or cand.score > finals[text].score:
+                finals[text] = cand
+        return sorted(finals.values(), key=lambda c: -c.score)[:n_best]
