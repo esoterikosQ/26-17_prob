@@ -2,3 +2,4 @@ kiwipiepy
 ijson
 pytest
 pynini
+kenlm
