@@ -92,19 +92,26 @@ def main() -> None:
     with mp.get_context("fork").Pool(args.workers) as pool:
         res = list(pool.imap_unordered(_work, items, chunksize=16))
     wall = time.time() - t0
-    out = {}
-    for name in DEV:
-        rows = [r for r in res if r[0] == name]
+    def summarize(rows):
         fin = [r for r in rows if math.isfinite(r[2])]
         diffs = sorted(r[2] - r[3] for r in fin)
-        out[name] = {
+        return {
             "n": len(rows), "finite": len(fin),
             "nll_per_pair": round(statistics.mean(r[2] for r in fin), 3),
-            "nll_per_jamo": round(sum(r[2] for r in fin) / sum(r[4] for r in fin), 4),
+            "nll_per_jamo": round(sum(r[2] for r in fin) / max(sum(r[4] for r in fin), 1), 4),
             "D_median": round(diffs[len(diffs) // 2], 3), "D_p90": round(diffs[int(len(diffs) * 0.9)], 3),
             "sec_per_pair_mean": round(statistics.mean(r[5] for r in rows), 4),
             "sec_per_pair_max": round(max(r[5] for r in rows), 3),
         }
+
+    out = {}
+    for name in DEV:
+        rows = [r for r in res if r[0] == name]
+        out[name] = {"all": summarize(rows)}
+        for cat in sorted({r[1] for r in rows}):
+            sub = [r for r in rows if r[1] == cat]
+            if len(sub) >= 20:
+                out[name][cat] = summarize(sub)
     print(json.dumps({"wall_sec": round(wall, 1), "dev": out}, ensure_ascii=False))
 
 
