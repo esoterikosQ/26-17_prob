@@ -4,6 +4,8 @@
 
 출력 datasets/ec_gold/<tag>/ (git 제외): records.jsonl(표본 레코드, 디코더 입력), orig.txt, cor.txt,
 gold.m2(KAGAS), stats.json. 범주는 가리지 않는다(고칠 필요 없는 문장도 실제 비율대로 포함).
+BMP 밖 문자(이모지 등, U+FFFF 초과)가 든 쌍은 제외한다 — KAGAS의 Kkma(KoNLPy/JPype)가 이런 문자에서
+UnicodeDecodeError로 멈춘다(2026-11-24 확인). 제외 비율은 stats.json에 남긴다.
 """
 
 from __future__ import annotations
@@ -27,13 +29,16 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     recs = []
+    excluded_nonbmp = 0
     with open("datasets/ec/dev.jsonl", encoding="utf-8") as f:
         for line in f:
             r = json.loads(line)
             if r["keyboard"] == "2벌식(쿼티)":
                 r["x"] = " ".join(r["x"].split())
                 r["y"] = " ".join(r["y"].split())
-                if r["x"] and r["y"]:
+                if any(ord(ch) > 0xFFFF for ch in r["x"] + r["y"]):
+                    excluded_nonbmp += 1
+                elif r["x"] and r["y"]:
                     recs.append(r)
     recs = random.Random(args.seed).sample(recs, min(args.n, len(recs)))
     with open(out / "records.jsonl", "w", encoding="utf-8") as f:
@@ -56,6 +61,7 @@ def main() -> None:
         if line.startswith("A "):
             types[line.split("|||")[1]] += 1
     stats = {"n": len(recs), "m2_blocks": blocks, "kagas_sec": round(time.time() - t0, 1),
+             "excluded_nonbmp": excluded_nonbmp,
              "cats": dict(Counter(r["cat"] for r in recs)), "types": dict(types.most_common())}
     (out / "stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(stats, ensure_ascii=False))
