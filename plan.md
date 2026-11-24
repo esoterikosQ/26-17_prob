@@ -58,8 +58,20 @@
 
 ### A-1 — 자모 채널 $T_J$ 단독 (첫 관문)
 - Pynini/OpenFst로 Brill–Moore 부분열 편집(≤3 자모, ±1 문맥) 채널 + 백오프 편집, 문장 단위 디코딩(맞춤법·띄어쓰기만).
-- A-0 완료 후 세부 계획을 이 절에 추가한다.
 - **완료 기준**: 맞춤법·띄어쓰기 유형 F0.5 측정 가능.
+
+세부 계획 (2026-11-24 초안, A-0d 육안 검수 결과에 따라 조정):
+
+| 단계 | 작업 | 산출 | 판정 |
+|---|---|---|---|
+| A-1a | 학습 편집쌍 추출: A-0d 정렬의 spacing·edit 구간에서 자모 정렬 → Brill–Moore 방식으로 길이 ≤3 부분열 편집 α→β(±1 문맥 포함) 열거·계수. 학습 자료: EC train(2벌식 부분집합 우선) + Kor-Native train | 편집 계수표 | 편집 유형 상위 목록 검수 |
+| A-1b | 편집 확률 추정: 상대빈도 + 디리클레 평활(α<1), 동일 편집 P(α→α)와 백오프 편집(임의 자모 대치·삽입·삭제에 작은 확률)으로 전 지지 확보 | `P(β\|α)` 표 | dev 쌍의 $\log P_J(x\|y)$가 모두 유한 |
+| A-1c | EM 재추정(Ristad–Yianilos 확률적 편집거리를 부분열 편집으로 확장): 분할을 잠재변수로 두고 전·후진 계산 | 수렴한 편집 확률 | 로그우도 단조 증가 |
+| A-1d | $T_J$를 Pynini WFST로 구성(편집 union의 closure), 역방향으로 x의 자모 격자 생성 → 사전확률 결합 → n-best | 디코더 | 합성셋·EC dev에서 동작 |
+| A-1e | 평가: EC dev(space_only·content), Kor-Native dev의 WS·SPELL 유형에 대해 M²(KAGAS) P/R/F0.5 | F0.5 표 | 완료 기준 |
+
+- **A-1의 사전확률**: 형태소 n-gram(A-2) 전 단계이므로 음절+공백 n-gram(문자 LM)을 쓴다. 학습 자료는 EC·Kor-* train의 교정문 + (전송 후) 신문 말뭉치.
+- **도구 제약 (확인 2026-11-24)**: KenLM 질의 모듈(`pip install kenlm`)은 쓸 수 있으나 추정기 `lmplz`는 Boost 개발 패키지가 없어 빌드 불가, OpenGrm 없음. 선택지: (1) 사용자가 `sudo apt install libboost-program-options-dev libboost-system-dev libboost-thread-dev libboost-test-dev libeigen3-dev`로 설치 후 KenLM 빌드, (2) 저장소 안에 Boost를 직접 빌드, (3) 수정 Kneser–Ney 추정을 직접 구현해 ARPA로 내보내고 KenLM 질의 모듈·Pynini로 읽음. → 사용자 결정 필요.
 
 ## 4. 열린 질문
 
