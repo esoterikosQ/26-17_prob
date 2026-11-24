@@ -45,7 +45,8 @@ def main() -> None:
     t0 = time.time()
     kagas = Path("tools/KAGAS")
     with open(out / "kagas.log", "w", encoding="utf-8") as log:
-        subprocess.run([str(Path(".venv-kagas/bin/python").resolve()), "parallel_to_m2_korean.py",
+        # venv의 python은 심볼릭 링크라 resolve()하면 시스템 python이 된다 → absolute()
+        subprocess.run([str(Path(".venv-kagas/bin/python").absolute()), "parallel_to_m2_korean.py",
                         "-orig", str((out / "orig.txt").resolve()), "-cor", str((out / "cor.txt").resolve()),
                         "-out", str((out / "gold.m2").resolve()), "-hunspell", "./aff-dic", "-noprint"],
                        cwd=kagas, stdout=log, stderr=subprocess.STDOUT, check=True)
