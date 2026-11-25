@@ -10,7 +10,7 @@ KAGAS PARTICLE인 참 양성의 53%가 JAMO로 설명됨).
 x′ = y에서 A-3a 자동 z가 SPELL인 편집 구간과 띄어쓰기·부호 구간만 x 쪽으로 바꾼 문장(형태소 층위 편집
 구간은 y 그대로). 구간 순서는 ``datasets/morph/<set>_train/regions.jsonl``(편집 구간만, 쌍 순서대로)과
 같은 ``align_pair``로 다시 맞춘다.
-출력: datasets/kor_gec/<set>_jamo_train.jsonl ({unit_id, x: x′, y, x_orig}).
+출력: datasets/kor_gec/<set>_jamo_train.jsonl ({unit_id, x: x′, y, x_orig}); ``ec2``는 datasets/ec/ec2_jamo_train.jsonl.
 """
 
 from __future__ import annotations
@@ -39,17 +39,23 @@ def main() -> None:
             for line in f:
                 r = json.loads(line)
                 zs[r["unit"]].append((r["y_seg"], r["x_seg"], r["z"]))
-        recs = [json.loads(line) for line in open(f"datasets/kor_gec/{name}_train.jsonl", encoding="utf-8")]
+        if name == "ec2":
+            from scripts.extract_morph_edits import load_records
+            recs = load_records("ec2", "train", 0, 0)
+            out = Path("datasets/ec/ec2_jamo_train.jsonl")
+        else:
+            recs = [json.loads(line) for line in open(f"datasets/kor_gec/{name}_train.jsonl", encoding="utf-8")]
+            out = Path(f"datasets/kor_gec/{name}_jamo_train.jsonl")
         recs = [r for r in recs if r["x"].strip() and r["y"].strip()]
         stat = Counter()
-        out = Path(f"datasets/kor_gec/{name}_jamo_train.jsonl")
         with open(out, "w", encoding="utf-8") as fo:
             for s in range(0, len(recs), args.chunk):
                 chunk = recs[s:s + args.chunk]
                 for r, ys in zip(chunk, ana.spans_many([r["y"] for r in chunk])):
                     y, x = r["y"], r["x"]
                     if x == y:
-                        fo.write(json.dumps({"unit_id": r["unit_id"], "x": x, "y": y, "x_orig": x}, ensure_ascii=False) + "\n")
+                        fo.write(json.dumps({"unit_id": r["unit_id"], "x": x, "y": y, "x_orig": x,
+                                             "keyboard": r.get("keyboard", "")}, ensure_ascii=False) + "\n")
                         stat["identical"] += 1
                         continue
                     regs = align_pair(y, x, [Span(*q) for q in ys])
@@ -69,7 +75,8 @@ def main() -> None:
                     parts.append(y[pos:])
                     xp = "".join(parts)
                     stat["changed_pairs" if xp != y else "now_identical"] += 1
-                    fo.write(json.dumps({"unit_id": r["unit_id"], "x": xp, "y": y, "x_orig": x}, ensure_ascii=False) + "\n")
+                    fo.write(json.dumps({"unit_id": r["unit_id"], "x": xp, "y": y, "x_orig": x,
+                                         "keyboard": r.get("keyboard", "")}, ensure_ascii=False) + "\n")
         print(json.dumps({"set": name, "pairs": len(recs), **stat, "out": str(out)}, ensure_ascii=False), flush=True)
 
 

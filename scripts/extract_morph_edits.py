@@ -14,6 +14,7 @@
   (``region_family``: 조사 관여 → PARTICLE 등)와 대조한다.
 - ``--inspect-check``: 사용자가 판정한 A-0d 검수 파일(EC dev)의 편집 구간마다 자동 z를 붙여 판정과 나란히 출력.
 - EC는 train에서 범주 구분 없이 ``--ec-n``쌍을 무작위로 뽑는다(동일 쌍도 포함해야 IDENT 기저율이 맞음).
+  ``ec2``는 EC train 2벌식 전부(A-1a 자모 채널과 같은 범위, A-3d 계층 분리용).
 - 출력: datasets/morph/<set>_<split>/{regions.jsonl, ctx_counts.json, morph_counts.json}, outputs/a3/extract_<set>_<split>.json(통계).
   ``morph_counts.json``: y 형태소(부호 제외) 단일 빈도 ``uni``[(형태, 품사, n)]와 조사·어미의 (왼쪽 품사, 형태, 품사)
   빈도 ``bi`` — 형태소 채널 확률의 분모(A-3b). 편집마다 왼쪽 y 형태소 품사 ``lt``를 기록한다.
@@ -95,6 +96,14 @@ def kagas_overlap(x: str, x_start: int, x_end: int, kagas) -> list:
 def load_records(name: str, split: str, ec_n: int, seed: int):
     if name in KOR:
         return [json.loads(line) for line in open(f"datasets/kor_gec/{name}_{split}.jsonl", encoding="utf-8")]
+    if name == "ec2":       # EC 2벌식 전부(A-1a 자모 채널 학습 자료와 같은 범위; A-3d 계층 분리용)
+        out = []
+        with open(f"datasets/ec/{split}.jsonl", encoding="utf-8") as f:
+            for line in f:
+                r = json.loads(line)
+                if r["keyboard"] == "2벌식(쿼티)" and r["cat"] not in ("empty", "placeholder"):
+                    out.append(r)
+        return out
     rng = random.Random(seed)
     sample, seen = [], 0
     with open(f"datasets/ec/{split}.jsonl", encoding="utf-8") as f:
