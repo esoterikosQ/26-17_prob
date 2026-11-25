@@ -28,7 +28,7 @@ from scripts.decode import A1_TYPES, SPLIT_FILE, load_vocab, m2_blocks, m2score,
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
 from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
-from hnc.morph_lm import MorphLM  # noqa: E402
+from hnc.morph_lm import load_lm  # noqa: E402
 
 _DEC = None
 _PCFG = None
@@ -57,7 +57,8 @@ def main() -> None:
     ap.add_argument("--records", type=Path, default=None)
     ap.add_argument("--gold-m2", type=Path, default=None)
     ap.add_argument("--n", type=int, default=0)
-    ap.add_argument("--lm", type=Path, default=Path("datasets/lm/v1/lm5.bin"))
+    ap.add_argument("--lm", default="datasets/lm/v1/lm5.bin", help="LM 경로; 쉼표로 여럿이면 선형 보간")
+    ap.add_argument("--lm-weights", default=None, help="보간 가중치(쉼표, --lm 순서)")
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native_em"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
@@ -80,7 +81,7 @@ def main() -> None:
         others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
         base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm)
         _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min),
-                                          JamoChannel(params, others), base), MorphLM(args.lm), MorphAnalyzer(), base)
+                                          JamoChannel(params, others), base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base)
         _CFG, _NB = base, args.nbest
         sys.path.insert(0, str(args.pcfg_root))
         from pcfg.score import PCFGScorer

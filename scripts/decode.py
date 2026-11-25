@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
 from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
-from hnc.morph_lm import MorphLM  # noqa: E402
+from hnc.morph_lm import load_lm  # noqa: E402
 
 SPLIT_FILE = {"dev": "val", "test": "test"}
 A1_TYPES = {"WS", "SPELL"}
@@ -94,7 +94,8 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=0, help="앞에서부터 n문장(0=전체)")
     ap.add_argument("--records", type=Path, default=None, help="입력 레코드(jsonl, x 필드); 주면 --set/--split 대신")
     ap.add_argument("--gold-m2", type=Path, default=None, help="--records와 함께 쓸 정답 M²")
-    ap.add_argument("--lm", type=Path, default=Path("datasets/lm/v1/lm5.bin"))
+    ap.add_argument("--lm", default="datasets/lm/v1/lm5.bin", help="LM 경로; 쉼표로 여럿이면 선형 보간")
+    ap.add_argument("--lm-weights", default=None, help="보간 가중치(쉼표, --lm 순서)")
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
@@ -114,7 +115,7 @@ def main() -> None:
     channel = JamoChannel(params, others)
     vocab = load_vocab(args.vocab, args.vocab_min)
     base = DecoderConfig(beam=args.beam, k_cand=args.k_cand)
-    _DEC = Decoder(CandidateGenerator(params, vocab, channel, base), MorphLM(args.lm), MorphAnalyzer(), base)
+    _DEC = Decoder(CandidateGenerator(params, vocab, channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base)
     _CFGS = [replace(base, lam_lm=float(a), lam_len=float(b))
              for a, b in itertools.product(args.lam_lm.split(","), args.lam_len.split(","))]
     print(json.dumps({"load_sec": round(time.time() - t0, 1), "vocab": len(vocab),

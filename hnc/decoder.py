@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from . import jamo
 from .jamo_channel import ChannelParams, JamoChannel
-from .morph_lm import LN10, lm_tokens
+from .morph_lm import lm_tokens
 from .surface import has_hangul, split_punct
 
 SP = jamo.SP
@@ -168,8 +168,6 @@ class NBest:
 
 class Decoder:
     def __init__(self, gen: CandidateGenerator, lm, analyzer, cfg: Optional[DecoderConfig] = None):
-        import kenlm
-        self._kenlm = kenlm
         self.gen = gen
         self.lm = lm
         self.ana = analyzer
@@ -183,15 +181,6 @@ class Decoder:
             m = lm_tokens(self.ana.analyze(text))
             self._morph_cache[text] = m
         return m
-
-    def _lm_extend(self, state, tokens: Sequence[str]):
-        total = 0.0
-        st = state
-        for t in tokens:
-            nxt = self._kenlm.State()
-            total += self.lm.model.BaseScore(st, t, nxt)
-            st = nxt
-        return total * LN10, st
 
     def _span_candidates(self, toks: Sequence[str], i: int, L: int) -> List[Tuple[str, float]]:
         if L == 1:
@@ -229,8 +218,7 @@ class Decoder:
         n = len(x.split())
         if n == 0:
             return [NBest(x, 0.0, 0.0, 0.0, 0)]
-        start = self._kenlm.State()
-        self.lm.model.BeginSentenceWrite(start)
+        start = self.lm.begin()
         beams: List[List[_Hyp]] = [[] for _ in range(n + 1)]
         beams[0] = [_Hyp(0.0, start, ())]
         for i in range(n):
@@ -240,15 +228,14 @@ class Decoder:
             for L in (1, 2):
                 for y, ch, toks_y in prep.get((i, L), ()):
                     for h in beams[i]:
-                        lm, st = self._lm_extend(h.state, toks_y)
+                        lm, st = self.lm.extend(h.state, toks_y)
                         sp = self.sp_cost if i > 0 else 0.0
                         s = h.score + cfg.lam_lm * lm - cfg.lam_ch * (ch + sp) + cfg.lam_len * len(toks_y)
                         beams[i + L].append(_Hyp(s, st, h.out + (y,), h.lm + lm, h.ch + ch + sp,
                                                  h.nm + len(toks_y)))
         finals = {}
         for h in beams[n]:
-            end = self._kenlm.State()
-            e = self.lm.model.BaseScore(h.state, "</s>", end) * LN10
+            e = self.lm.end(h.state)
             text = " ".join(h.out)
             cand = NBest(text, h.score + cfg.lam_lm * e, h.lm + e, h.ch, h.nm)
             if text not in finals or cand.score > finals[text].score:
