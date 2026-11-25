@@ -1,6 +1,7 @@
 """A-3g: dev에서 집단 채널·형태소 경로 가중치를 선택 절반에서 고르고 확인 절반에 한 번 적용.
 
     python scripts/population_dev.py --tag a3g_pop_v1 --workers 12
+    python scripts/population_dev.py --tag a3g_pop_v1 --lexical-probe
 
 ρ는 학습자 자모 채널의 비율, w는 형태소 편집을 포함하는 경로의 질량 배수이다.
 모든 조합에 같은 학습자 형태소 표, 보간 LM, 빔, 자료 순서를 쓴다. 신경 재채점·test는 사용하지 않는다.
@@ -50,7 +51,8 @@ def key(share: float, mass: float) -> str:
     return f"r{share:g}_m{mass:g}"
 
 
-def run_decode(domain: str, root: Path, name: str, share: float, *, bm: bool, workers: int) -> None:
+def run_decode(domain: str, root: Path, name: str, share: float, *, bm: bool, workers: int,
+               lexical: bool = False) -> None:
     directory = root / domain / name
     directory.mkdir(parents=True, exist_ok=False)
     args = [sys.executable, "scripts/decode.py", "--set", domain, "--split", "dev",
@@ -61,7 +63,9 @@ def run_decode(domain: str, root: Path, name: str, share: float, *, bm: bool, wo
         args.extend(["--morph-weight", "0"])
     else:
         args.extend(["--mix-channel", LEARNER, "--mix-weight", str(share), "--morph-channel", MORPH,
-                     "--morph-max-cands", "30", "--morph-weight", ",".join(map(str, MASSES))])
+                     "--morph-max-cands", "30", "--morph-weight", "1" if lexical else ",".join(map(str, MASSES))])
+        if lexical:
+            args.extend(["--lexical-k", "2", "--lexical-min-count", "5"])
     if domain == "ec2":
         rec, gold = data_paths(domain)
         args.extend(["--records", str(rec), "--gold-m2", str(gold)])
@@ -70,13 +74,30 @@ def run_decode(domain: str, root: Path, name: str, share: float, *, bm: bool, wo
         subprocess.run(args, check=True, stdout=log, stderr=subprocess.STDOUT)
 
 
-def evaluate(domain: str, directory: Path, workers: int) -> dict:
+def aligned_dev(domain: str):
     rp, gp = data_paths(domain)
     with rp.open(encoding="utf-8") as src:
         records = [json.loads(line) for line in src]
     gold = m2_blocks(gp)
     if len(records) != len(gold) or not all(same_sentence(r["x"], g[0][2:]) for r, g in zip(records, gold)):
         raise ValueError(f"{domain}: 원문과 정답 M² 순서가 일치하지 않는다")
+    return records, gold
+
+
+def predictions(directory: Path, records: list[dict]):
+    summary = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
+    sources = (directory / "source.txt").read_text(encoding="utf-8").splitlines()
+    if len(sources) != len(records) or not all(same_sentence(x, r["x"]) for x, r in zip(sources, records)):
+        raise ValueError(f"{directory}: 가설의 문장 순서가 다르다")
+    for row in summary["results"]:
+        pred = (directory / row["hyp"]).read_text(encoding="utf-8").splitlines()
+        if len(pred) != len(records):
+            raise ValueError(f"{directory}: 가설 수 불일치")
+        yield summary["mix_weight"], row, pred
+
+
+def evaluate(domain: str, directory: Path, workers: int) -> dict:
+    records, gold = aligned_dev(domain)
     select = [is_selection(domain, r) for r in records]
     groups = {"select": [i for i, flag in enumerate(select) if flag],
               "check": [i for i, flag in enumerate(select) if not flag]}
@@ -94,15 +115,10 @@ def evaluate(domain: str, directory: Path, workers: int) -> dict:
     runs = [f"r{v:g}" for v in SHARES] + (["bm"] if domain == "ec2" else [])
     for run in runs:
         d = directory / run
-        report = json.loads((d / "summary.json").read_text(encoding="utf-8"))
-        sources = (d / "source.txt").read_text(encoding="utf-8").splitlines()
-        if len(sources) != len(gold) or not all(same_sentence(x, r["x"]) for x, r in zip(sources, records)):
-            raise ValueError(f"{d}: 가설의 문장 순서가 다르다")
-        for row in report["results"]:
-            label = "bm" if run == "bm" else key(report["mix_weight"], row["morph_weight"])
-            pred = (d / row["hyp"]).read_text(encoding="utf-8").splitlines()
-            if len(pred) != len(records) or label in models:
-                raise ValueError(f"{d}: 중복 설정 또는 가설 수 불일치")
+        for share, row, pred in predictions(d, records):
+            label = "bm" if run == "bm" else key(share, row["morph_weight"])
+            if label in models:
+                raise ValueError(f"{d}: 중복 설정")
             models[label] = (pred, row["all"])
     grid = [key(r, m) for r in SHARES for m in MASSES]
     if not set(grid + [reference]) <= models.keys():
@@ -133,16 +149,53 @@ def evaluate(domain: str, directory: Path, workers: int) -> dict:
             "reference": reference, "selected": chosen, "selection_grid": tune, "comparison": comparisons}
 
 
+def lexical_probe(root: Path, workers: int, score_only: bool) -> dict:
+    domain = "korean_learner"
+    directory = root / domain
+    if not (directory / "r1/summary.json").is_file():
+        raise ValueError("먼저 같은 태그의 학습자 단독 채널(r1) 기준을 생성한다")
+    if not score_only:
+        run_decode(domain, root, "lex2", 1, bm=False, workers=workers, lexical=True)
+    records, gold = aligned_dev(domain)
+    paired = {}
+    for run in ("r1", "lex2"):
+        match = [p for rho, r, p in predictions(directory / run, records)
+                 if rho == r["morph_weight"] == r["lam_lm"] == 1 and r["lam_len"] == 0]
+        if len(match) != 1:
+            raise ValueError(f"{run}: 고정된 대조 설정이 하나여야 한다")
+        paired[run] = match[0]
+    result = {}
+    with TemporaryDirectory(dir=directory) as tmp:
+        td = Path(tmp)
+        for name, indices in (("all_dev", list(range(len(records)))),
+                              ("check", [i for i, r in enumerate(records) if not is_selection(domain, r)])):
+            blocks = [gold[i] for i in indices]
+            for typ in ("all", "NOUN", "VERB"):
+                write_m2(blocks, td / f"{typ}.m2", None if typ == "all" else {typ})
+            result[name] = {"n": len(indices), "different": sum(paired["r1"][i] != paired["lex2"][i] for i in indices)}
+            for run, pred in paired.items():
+                hp = td / "hyp.txt"
+                hp.write_text("".join(pred[i] + "\n" for i in indices), encoding="utf-8")
+                result[name][run] = {"all": m2score(hp, td / "all.m2"),
+                                     **{f"R_{t}": m2score(hp, td / f"{t}.m2")["R"] for t in ("NOUN", "VERB")}}
+    (directory / "lexical_comparison.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
+    return result
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="a3g_pop_v1")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--domains", nargs="+", choices=DOMAINS, default=DOMAINS)
     ap.add_argument("--score-only", action="store_true", help="다시 디코딩하지 않고 등록된 dev 출력만 채점")
+    ap.add_argument("--lexical-probe", action="store_true", help="혼합 격자와 별도로 학습자 어휘 후보만 비교")
     args = ap.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.tag) or args.workers < 1:
         ap.error("새 출력 태그와 양의 workers가 필요하다")
     root = Path("outputs/a1d") / args.tag
+    if args.lexical_probe:
+        print(json.dumps(lexical_probe(root, args.workers, args.score_only)), flush=True)
+        return
     for domain in args.domains:
         if not args.score_only:
             for share in SHARES:

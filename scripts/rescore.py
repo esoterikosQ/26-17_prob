@@ -97,8 +97,9 @@ def main() -> None:
     ap.add_argument("--out-name", default=None, help="요약 파일 이름(기본: summary.json / summary_regrid.json)")
     ap.add_argument("--hyp-prefix", default="", help="가설 파일 이름 접두어(다른 설정의 가설 파일을 덮어쓰지 않게)")
     args = ap.parse_args()
-    if args.from_nbest and (args.mix_channel is not None or args.mix_weight != 0 or args.morph_weight != 1):
-        ap.error("기존 n-best에는 이미 합산한 채널 비용만 있다. 혼합·형태소 가중치를 바꾸려면 n-best를 다시 생성한다.")
+    if args.from_nbest and (args.mix_channel is not None or args.mix_weight != 0 or args.morph_weight != 1
+                            or args.lexical_k or args.lexical_min_count != 5):
+        ap.error("채널 가중치나 어휘 후보를 바꾸려면 저장된 n-best를 재사용하지 말고 다시 생성한다.")
     if args.morph_channel is None and args.morph_weight not in (0, 1):
         ap.error("--morph-weight에는 --morph-channel이 필요하다")
     out = Path("outputs/rescore") / args.tag
@@ -108,7 +109,8 @@ def main() -> None:
         channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
         base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm, morph_max_cands=args.morph_max_cands,
                              morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine,
-                             morph_weight=args.morph_weight)
+                             morph_weight=args.morph_weight, lexical_k=args.lexical_k,
+                             lexical_min_count=args.lexical_min_count)
         _DEC = Decoder(CandidateGenerator(channel.params, load_vocab(args.vocab, args.vocab_min),
                                           channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
                        morph_channel=MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
@@ -182,6 +184,11 @@ def main() -> None:
     summary = {"sents": len(recs), "wall_sec": round(wall, 1), "nbest": args.nbest, "base_lam_lm": args.base_lam_lm,
                "mean_hyps": round(n_hyps / len(res), 2), "pcfg_parse_rate": round(n_parsed / n_hyps, 4),
                "oracle": oracle_rows, "grid": rows}
+    if not args.from_nbest:
+        summary["channel_config"] = {"channel": str(args.channel), "mix_channel": str(args.mix_channel) if args.mix_channel else None,
+                                     "mix_weight": args.mix_weight, "morph_weight": args.morph_weight,
+                                     "morph_channel": str(args.morph_channel) if args.morph_channel else None,
+                                     "lexical_k": args.lexical_k, "lexical_min_count": args.lexical_min_count}
     name = args.out_name or ("summary_regrid.json" if args.from_nbest else "summary.json")
     (out / name).write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))

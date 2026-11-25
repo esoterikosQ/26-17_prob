@@ -114,3 +114,17 @@ def test_same_surface_mass_and_explanation_use_same_weight(gen, weight):
 def test_morph_weight_validation(weight):
     with pytest.raises(ValueError):
         DecoderConfig(morph_weight=weight)
+
+
+def test_optional_lexical_path_does_not_replace_grammar_budget(gen):
+    from hnc.morph_channel import MorphChannel
+    mc = MorphChannel({"떡/NNG": [[["밥", "NNG"], "LEXICAL", 2., 8]]}, {}, {}, {})
+    lm, ana = MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer()
+    off = Decoder(gen, lm, ana, morph_channel=mc)
+    on = Decoder(gen, lm, ana, DecoderConfig(lexical_k=1), morph_channel=mc)
+    old, prep = off.prepare("떡"), on.prepare("떡")
+    assert "밥" not in {y for y, _, _ in old[(0, 1)]}
+    assert {y for y, _, _ in old[(0, 1)]} < {y for y, _, _ in prep[(0, 1)]}
+    h = next(h for h in on.search_nbest("떡", prep) if h.text == "밥")
+    assert on.explain("떡", h)[0]["posterior"] == {"LEXICAL_NOUN": 1.0}
+    assert "밥" not in {h.text for h in on.search_nbest("떡", prep, replace(on.cfg, morph_weight=0))}

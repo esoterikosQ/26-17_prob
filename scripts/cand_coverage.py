@@ -65,7 +65,7 @@ def main() -> None:
     args = ap.parse_args()
     channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
     cfg = DecoderConfig(morph_max_cands=args.max_cands, morph_two_edits=args.two_edits, morph_combine=args.combine,
-                        morph_weight=args.morph_weight)
+                        morph_weight=args.morph_weight, lexical_k=args.lexical_k, lexical_min_count=args.lexical_min_count)
     mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
     _DEC = Decoder(CandidateGenerator(channel.params, load_vocab(args.vocab, 5), channel, cfg),
                    load_lm("datasets/lm/v0/lm5.bin"), MorphAnalyzer(), cfg, morph_channel=mc)
@@ -87,6 +87,7 @@ def main() -> None:
     tot = sum(c["n"] for c in by.values())
     summary = {"tag": args.tag, "max_cands": args.max_cands, "two_edits": args.two_edits, "combine": args.combine,
                "mix_weight": args.mix_weight, "morph_weight": args.morph_weight,
+               "lexical_k": args.lexical_k, "lexical_min_count": args.lexical_min_count,
                "single_token_edits": tot, "coverage": round(sum(c["hit"] for c in by.values()) / tot, 3),
                "mean_cands_per_token": round(sum(ncand) / len(ncand), 1), "by_type": table}
     print(json.dumps(summary, ensure_ascii=False))

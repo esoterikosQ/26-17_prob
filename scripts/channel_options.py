@@ -34,6 +34,8 @@ def add_channel_options(ap: argparse.ArgumentParser, *, grid: bool = False) -> N
     ap.add_argument("--mix-weight", type=_share, default=0.0, help="두 번째 자모 채널의 편집별 혼합비 ρ")
     ap.add_argument("--morph-weight", type=_mass_grid if grid else _mass, default=[1.0] if grid else 1.0,
                     help="형태소 편집 경로 질량의 배수(0=끔, 1=기존)" + (", 쉼표로 격자" if grid else ""))
+    ap.add_argument("--lexical-k", type=int, default=0, help="어절당 추가 일반명사·동사 대치 후보 수(0=끔)")
+    ap.add_argument("--lexical-min-count", type=int, default=5, help="어휘 대치 학습 사건의 최소 빈도")
 
 
 def load_channel(primary: Path, secondary: Path | None, weight: float) -> JamoChannel:

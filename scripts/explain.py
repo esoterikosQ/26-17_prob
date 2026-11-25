@@ -6,7 +6,7 @@
 
 - 참 양성: 시스템이 바꾼 x 어절 구간 [i, i+L)과 같은 구간의 정답 편집이 있고 교정 문자열이 같을 때.
 - z 부류 대응: PARTICLE(·_DEL·_INS) ↔ KAGAS PARTICLE, ENDING(·_DEL·_INS) ↔ ENDING,
-  JAMO ↔ SPELL·CONJUGATION·SHORTEN·WS. 그 밖의 KAGAS 유형(NOUN 등)은 이 모형이 만들지 않는 유형.
+  JAMO ↔ SPELL·CONJUGATION·SHORTEN·WS; 어휘 대치 옵션을 켜면 LEXICAL_NOUN·LEXICAL_VERB ↔ NOUN·VERB.
 - 출력: outputs/a3/explain_<tag>/{summary.json, sample.md(앞 ``--sample``문장, 사람 검토용 — 말뭉치 문장 포함, git 제외)}.
 """
 
@@ -31,7 +31,8 @@ from hnc.morph_lm import load_lm  # noqa: E402
 _DEC = None
 _CFG = None
 FAM = {"PARTICLE": "PARTICLE", "PARTICLE_DEL": "PARTICLE", "PARTICLE_INS": "PARTICLE",
-       "ENDING": "ENDING", "ENDING_DEL": "ENDING", "ENDING_INS": "ENDING", "JAMO": "SPELL"}
+       "ENDING": "ENDING", "ENDING_DEL": "ENDING", "ENDING_INS": "ENDING", "JAMO": "SPELL",
+       "LEXICAL_NOUN": "NOUN", "LEXICAL_VERB": "VERB"}
 KAGAS_FAM = {"PARTICLE": "PARTICLE", "ENDING": "ENDING", "SPELL": "SPELL", "CONJUGATION": "SPELL",
              "SHORTEN": "SPELL", "WS": "SPELL"}
 
@@ -82,7 +83,8 @@ def main() -> None:
     channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
     _CFG = DecoderConfig(beam=args.beam, lam_lm=args.lam_lm, morph_max_cands=args.morph_max_cands,
                          morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine,
-                         morph_weight=args.morph_weight)
+                         morph_weight=args.morph_weight, lexical_k=args.lexical_k,
+                         lexical_min_count=args.lexical_min_count)
     mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
     _DEC = Decoder(CandidateGenerator(channel.params, load_vocab(args.vocab, args.vocab_min), channel, _CFG),
                    load_lm(args.lm, args.lm_weights), MorphAnalyzer(), _CFG, morph_channel=mc)
@@ -123,12 +125,18 @@ def main() -> None:
         return {"n": tot, "acc": round(row[key] / tot, 3) if tot else None, **dict(row.most_common(4))}
     summary = {"set": args.set, "split": args.split, "sents": len(recs), "lam_lm": args.lam_lm,
                "mix_weight": args.mix_weight, "morph_weight": args.morph_weight,
+               "lexical_k": args.lexical_k, "lexical_min_count": args.lexical_min_count,
                "changed_spans": n_changed, "true_positive_spans": n_tp, "pred_z": dict(z_all.most_common()),
                "z_vs_kagas_on_tp": {k: acc(v, k) for k, v in sorted(conf.items(), key=lambda kv: -sum(kv[1].values()))},
                "top_pairs": [[a, b, n] for (a, b), n in conf_top.most_common(20)]}
     comparable = {k: v for k, v in conf.items() if k in ("PARTICLE", "ENDING", "SPELL")}
     tot = sum(sum(v.values()) for v in comparable.values())
     summary["z_accuracy_comparable"] = round(sum(v[k] for k, v in comparable.items()) / tot, 4) if tot else None
+    if args.lexical_k:
+        incl = {k: v for k, v in conf.items() if k in ("PARTICLE", "ENDING", "SPELL", "NOUN", "VERB")}
+        total = sum(sum(v.values()) for v in incl.values())
+        summary["z_with_lexical"] = {"n": total, "accuracy": round(sum(v[k] for k, v in incl.items()) / total, 4)
+                                     if total else None}
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
 

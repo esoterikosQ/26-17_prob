@@ -121,7 +121,9 @@ def main() -> None:
     t0 = time.time()
     channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
     vocab = load_vocab(args.vocab, args.vocab_min)
-    base = DecoderConfig(beam=args.beam, k_cand=args.k_cand, morph_max_cands=args.morph_max_cands, morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine)
+    base = DecoderConfig(beam=args.beam, k_cand=args.k_cand, morph_max_cands=args.morph_max_cands,
+                         morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine,
+                         lexical_k=args.lexical_k, lexical_min_count=args.lexical_min_count)
     mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8")) if args.morph_channel else None
     _DEC = Decoder(CandidateGenerator(channel.params, vocab, channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
                    morph_channel=mc)
@@ -166,6 +168,7 @@ def main() -> None:
                "channel": str(args.channel), "mix_channel": str(args.mix_channel) if args.mix_channel else None,
                "mix_weight": args.mix_weight, "morph_channel": str(args.morph_channel) if args.morph_channel else None,
                "lm": args.lm, "lm_weights": args.lm_weights, "morph_max_cands": args.morph_max_cands,
+               "lexical_k": args.lexical_k, "lexical_min_count": args.lexical_min_count,
                "sec_per_sent_mean": round(sum(secs) / len(secs), 3), "sec_per_sent_max": round(max(secs), 2),
                "results": rows}
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")

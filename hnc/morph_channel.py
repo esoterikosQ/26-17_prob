@@ -223,7 +223,8 @@ SUB_Z = ("PARTICLE", "ENDING", "LEXICAL", "VARIANT")
 FAMILY = {"J": "PARTICLE", "E": "ENDING", "C": "LEXICAL", "S": "LEXICAL"}
 Z_KO = {"IDENT": "그대로", "JAMO": "자모(오타·표기·띄어쓰기)", "PARTICLE": "조사 대치", "ENDING": "어미 대치",
         "PARTICLE_DEL": "조사 누락", "ENDING_DEL": "어미 누락", "PARTICLE_INS": "조사 과잉", "ENDING_INS": "어미 과잉",
-        "LEXICAL": "어휘 대치", "VARIANT": "통용 변이 규범화", "LEXICAL_DEL": "형태소 누락", "LEXICAL_INS": "형태소 과잉"}
+        "LEXICAL": "어휘 대치", "VARIANT": "통용 변이 규범화", "LEXICAL_DEL": "형태소 누락", "LEXICAL_INS": "형태소 과잉",
+        "LEXICAL_NOUN": "일반명사 대치", "LEXICAL_VERB": "동사 대치"}
 
 
 def _key(m) -> str:
@@ -341,6 +342,24 @@ class MorphChannel:
         if k in self.ident:
             return self.ident[k]
         return self._tag_ident.get(m[1], 0.0)
+
+    def lexical_candidates(self, ms: Sequence[M], k: int, min_count: int = 5) -> List[Tuple[List[M], str, float]]:
+        """조사·어미 예산과 별도로, 관측된 일반명사↔일반명사·동사↔동사 한 형태소 대치만."""
+        if k < 0 or min_count < 1:
+            raise ValueError("어휘 후보 수는 0 이상, 최소 빈도는 1 이상이어야 한다")
+        proposals = []
+        for j, src in enumerate(ms):
+            pos = src[1].partition("-")[0]
+            if pos not in ("NNG", "VV"):
+                continue
+            for dest, z, cost, count in self.sub.get(_key(src), ()):
+                if (z == "LEXICAL" and count >= min_count and dest[1].partition("-")[0] == pos
+                        and src[0] != dest[0]):
+                    label = "LEXICAL_NOUN" if pos == "NNG" else "LEXICAL_VERB"
+                    changed = [*ms[:j], (dest[0], dest[1]), *ms[j + 1:]]
+                    proposals.append((count, changed, label, cost - self.ident_cost(src)))
+        proposals.sort(key=lambda p: -p[0])
+        return [(changed, z, delta) for _, changed, z, delta in proposals[:k]]
 
     def candidates(self, ms: Sequence[M], lt0: str = "BOS", max_cands: int = 12,
                    classes: Tuple[str, ...] = ("J", "E")) -> List[Tuple[List[M], str, float]]:

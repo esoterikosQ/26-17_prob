@@ -64,10 +64,14 @@ class DecoderConfig:
     morph_two_edits: bool = False  # 상위 형태소 후보에 편집 하나를 더(어절당 2개)
     morph_combine: int = 0        # 형태소 편집을 얹을 자모 후보 수(오타 + 조사 오류가 한 어절에 겹친 경우)
     morph_weight: float = 1.0     # 형태소 편집을 거친 경로 전체에 한 번 곱하는 질량 배수
+    lexical_k: int = 0
+    lexical_min_count: int = 5
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.morph_weight) or self.morph_weight < 0:
             raise ValueError("morph_weight는 0 이상의 유한한 수여야 한다")
+        if self.lexical_k < 0 or self.lexical_min_count < 1:
+            raise ValueError("lexical_k는 0 이상, lexical_min_count는 1 이상이어야 한다")
 
 
 def _in_scope(sym: str) -> bool:
@@ -223,6 +227,8 @@ class Decoder:
         self.lm = lm
         self.ana = analyzer
         self.cfg = cfg or gen.cfg
+        if self.cfg.lexical_k and self.mc is None:
+            raise ValueError("어휘 대치 후보에는 형태소 채널이 필요하다")
         self.sp_cost = -math.log(gen.channel.params.identity[SP])
         self._morph_cache: Dict[str, list] = {}
         self._paths: Dict[Tuple[int, str], Dict[str, float]] = {}
@@ -281,7 +287,10 @@ class Decoder:
                 bases.append((mj, dj, "JAMO+"))
         out = []
         for base_ms, d0, zp in bases:
-            for ms2, z, d in self._morph_edits(base_ms, lt0):
+            edits = self._morph_edits(base_ms, lt0)
+            if not zp and self.cfg.lexical_k:
+                edits.extend(self.mc.lexical_candidates(base_ms, self.cfg.lexical_k, self.cfg.lexical_min_count))
+            for ms2, z, d in edits:
                 y = self._realize(ms2)
                 if y and y != core and " " not in y and has_hangul(y) and self.gen._in_vocab(y):
                     out.append((y, d0 + d, zp + z))

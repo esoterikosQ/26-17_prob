@@ -115,3 +115,19 @@ def test_candidates_ranked_by_event_count_not_rate():
     ch = MorphChannel.fit(regions, uni, bi)
     top = ch.candidates([("우리", "NP")], max_cands=1)
     assert top[0][0] == [("우리", "NP"), ("는", "JX")] and top[0][1] == "PARTICLE_DEL"
+
+
+def test_lexical_candidates_only_attested_same_pos_substitutions():
+    from hnc.morph_channel import MorphChannel
+    sub = {"빵/NNG": [[["떡", "NNG"], "LEXICAL", 3., 5],
+                      [["콩", "NNG"], "LEXICAL", .01, 4],
+                      [["서울", "NNP"], "LEXICAL", .01, 20],
+                      [["밥", "NNG"], "VARIANT", .01, 30]],
+           "열/VV-R": [[["닫", "VV"], "LEXICAL", 4., 8]],
+           "가람/NNP": [[["떡", "NNG"], "LEXICAL", .01, 40]]}
+    mc = MorphChannel(sub, {"열/VV-R": .25}, {}, {})
+    ms = [("가람", "NNP"), ("빵", "NNG"), ("열", "VV-R"), ("다", "EF")]
+    out = mc.lexical_candidates(ms, 2)
+    assert out == [([*ms[:2], ("닫", "VV"), ms[-1]], "LEXICAL_VERB", 3.75),
+                   ([ms[0], ("떡", "NNG"), *ms[2:]], "LEXICAL_NOUN", 3.)]
+    assert mc.lexical_candidates(ms, 1) == out[:1] and mc.lexical_candidates(ms, 0) == []
