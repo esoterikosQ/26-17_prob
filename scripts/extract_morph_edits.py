@@ -8,7 +8,11 @@
   통용 변이 판정의 빈도표는 디코더 어휘(``datasets/vocab/eojeol_freq.tsv``: 교정문 + 신문 어절 빈도).
 - 문맥 c: 형태소 품사 + 바로 앞 표층 문자의 받침(B = 받침 있음, V = 없음, O = 한글 아님/문장 처음) —
   조사·어미 이형태(을/를, 이/가, 아/어) 선택의 조건.
-- Kor-*는 쌍마다 KAGAS 자동 유형(``kagas``: x 어절 위치)이 있어, 구간과 겹치는 KAGAS 편집의 유형과 대조한다.
+- 통용 변이의 "체계적 규범화 쌍"은 EC 표본에서 먼저 모은다(1차: 원문 표기가 정문 말뭉치에서 흔한 내용 형태소
+  대치 쌍의 빈도 → 3회 이상을 ``datasets/morph/systematic_pairs.json``으로), 2차에서 모든 자료를 분류한다.
+- Kor-*는 쌍마다 KAGAS 자동 유형(``kagas``: x 어절 위치)이 있어, 구간과 겹치는 KAGAS 편집의 유형을 구간 부류
+  (``region_family``: 조사 관여 → PARTICLE 등)와 대조한다.
+- ``--inspect-check``: 사용자가 판정한 A-0d 검수 파일(EC dev)의 편집 구간마다 자동 z를 붙여 판정과 나란히 출력.
 - EC는 train에서 범주 구분 없이 ``--ec-n``쌍을 무작위로 뽑는다(동일 쌍도 포함해야 IDENT 기저율이 맞음).
 - 출력: datasets/morph/<set>_<split>/{regions.jsonl, ctx_counts.json}, outputs/a3/extract_<set>_<split>.json(통계).
 """
@@ -27,7 +31,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hnc.align import Span, align_pair  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
-from hnc.morph_channel import KAGAS_TO_Z, is_punct, morph_edits, region_z, variant_by_freq  # noqa: E402
+from hnc.morph_channel import (  # noqa: E402
+    KAGAS_TO_Z, is_punct, mclass, morph_edits, region_family, region_z, surface_spell, variant_by_freq,
+)
 from hnc.surface import split_punct  # noqa: E402
 
 KOR = {"korean_learner", "native", "lang8"}
@@ -104,7 +110,54 @@ def load_records(name: str, split: str, ec_n: int, seed: int):
     return sample
 
 
-def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict) -> dict:
+def core(seg: str) -> str:
+    return "".join(ch for ch in seg if ch.isalnum())
+
+
+def analyze_region(y, x, g, ys, xs, fq, systematic):
+    """편집 구간 하나 → (편집 목록[문맥 포함], 구간 z, 구간 부류, 체계 쌍 후보[(m, m′)])."""
+    yidx = [k for k, q in enumerate(ys) if q[2] < g.y_end and q[3] > g.y_start and not is_punct(q[:2])]
+    my = [ys[k][:2] for k in yidx]
+    mx = [q[:2] for q in xs if q[2] < g.x_end and q[3] > g.x_start] if g.x_seg.strip() else []
+    variant = variant_by_freq(fq, eojeol_core(y, g.y_start, g.y_end), eojeol_core(x, g.x_start, g.x_end), systematic)
+    edits = surface_spell(morph_edits(my, mx, variant), core(g.y_seg), core(g.x_seg))
+    cands = [(tuple(e["m"]), tuple(e["m2"])) for e in edits
+             if e["z"] in ("LEXICAL", "VARIANT") and mclass(e["m"]) == mclass(e["m2"]) == "C"
+             and variant.common(e["m"], e["m2"])]
+    p, last = 0, None
+    out = []
+    for e in edits:
+        if e["m"] is not None:
+            k = yidx[p]
+            p += 1
+            last = k
+            c = (ys[k][1], batchim(y, ys[k][2]))
+        else:
+            c = ("INS_AFTER", ys[last][1] if last is not None else "BOS")
+        out.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c})
+    return out, region_z(out), region_family(out), cands
+
+
+def collect_systematic(args, ana, freq, min_count: int = 3) -> frozenset:
+    """1차: EC 표본에서 원문 표기가 흔한 내용 형태소 대치 쌍을 세어 체계적 규범화 쌍을 고른다."""
+    recs = [r for r in load_records("ec", args.split, args.ec_n, args.seed) if r["x"].strip() and r["y"].strip()]
+    fq = lambda w: freq.get(w, 0)      # noqa: E731
+    cnt = Counter()
+    for s in range(0, len(recs), args.chunk):
+        chunk = [r for r in recs[s:s + args.chunk] if r["x"] != r["y"]]
+        for r, ys, xs in zip(chunk, ana.spans_many([r["y"] for r in chunk]), ana.spans_many([r["x"] for r in chunk])):
+            for g in align_pair(r["y"], r["x"], [Span(*q) for q in ys]):
+                if g.kind == "edit":
+                    cnt.update(analyze_region(r["y"], r["x"], g, ys, xs, fq, frozenset())[3])
+    pairs = [[list(a), list(b), n] for (a, b), n in cnt.most_common() if n >= min_count]
+    Path("datasets/morph").mkdir(parents=True, exist_ok=True)
+    Path("datasets/morph/systematic_pairs.json").write_text(json.dumps(pairs, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({"systematic_pairs": len(pairs), "top": [[a[0], b[0], n] for a, b, n in pairs[:25]]},
+                     ensure_ascii=False), flush=True)
+    return frozenset((tuple(a), tuple(b)) for a, b, _ in pairs)
+
+
+def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic: frozenset) -> dict:
     t0 = time.time()
     recs = [r for r in load_records(name, split, args.ec_n, args.seed) if r["x"].strip() and r["y"].strip()]
     out_dir = Path("datasets/morph") / f"{name}_{split}"
@@ -134,43 +187,31 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict) -> dict:
                     if g.kind != "edit":
                         continue
                     n_regions += 1
-                    yidx = [k for k, q in enumerate(ys) if q[2] < g.y_end and q[3] > g.y_start and not is_punct(q[:2])]
-                    my = [ys[k][:2] for k in yidx]
-                    mx = [q[:2] for q in xs if q[2] < g.x_end and q[3] > g.x_start] if g.x_seg.strip() else []
-                    variant = variant_by_freq(fq, eojeol_core(y, g.y_start, g.y_end), eojeol_core(x, g.x_start, g.x_end))
-                    edits = morph_edits(my, mx, variant)
-                    # 각 편집의 문맥: m이 있으면 그 형태소, 삽입이면 왼쪽 y 형태소
-                    p, last = 0, None
-                    out_edits = []
-                    for e in edits:
-                        if e["m"] is not None:
-                            k = yidx[p]
-                            p += 1
-                            last = k
-                            c = (ys[k][1], batchim(y, ys[k][2]))
-                        else:
-                            c = ("INS_AFTER", ys[last][1] if last is not None else "BOS")
-                        out_edits.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c})
+                    out_edits, rz, fam, _ = analyze_region(y, x, g, ys, xs, fq, systematic)
+                    for e in out_edits:
                         ec_z[e["z"]] += 1
                         if e["z"] != "IDENT":
                             top[e["z"]][(e["m"] and "/".join(e["m"]), e["m2"] and "/".join(e["m2"]))] += 1
-                    rz = region_z(out_edits)
                     zc[rz] += 1
                     kg = kagas_overlap(x, g.x_start, g.x_end, r.get("kagas"))
                     mapped = sorted({KAGAS_TO_Z.get(t, t) for t in kg})
                     if len(mapped) == 1:
-                        conf[mapped[0]][rz] += 1
+                        conf[mapped[0]][fam] += 1
                     fo.write(json.dumps({"unit": r["unit_id"], "y_seg": g.y_seg, "x_seg": g.x_seg, "z": rz,
-                                         "edits": out_edits, "kagas": kg}, ensure_ascii=False) + "\n")
+                                         "family": fam, "edits": out_edits, "kagas": kg}, ensure_ascii=False) + "\n")
     (out_dir / "ctx_counts.json").write_text(json.dumps([[t, b, n] for (t, b), n in ctx.most_common()],
                                                         ensure_ascii=False), encoding="utf-8")
 
     def agree(row):
         tot = sum(row.values())
         return {"n": tot, **{z: round(v / tot, 3) for z, v in row.most_common(4)}}
+    comparable = {k: v for k, v in conf.items() if k in ("PARTICLE", "ENDING", "LEXICAL", "SPELL", "DEL", "INS")}
+    n_cmp = sum(sum(v.values()) for v in comparable.values())
+    acc = sum(v[k] for k, v in comparable.items()) / n_cmp if n_cmp else None
     stats = {"set": name, "split": split, "pairs": len(recs), "region_kinds": dict(kinds), "edit_regions": n_regions,
              "region_z": dict(zc.most_common()), "edit_z": dict(ec_z.most_common()),
              "kagas_vs_auto": {k: agree(v) for k, v in sorted(conf.items(), key=lambda kv: -sum(kv[1].values()))},
+             "kagas_family_agreement": {"n": n_cmp, "acc": round(acc, 4) if acc is not None else None},
              "top": {z: [[a or "∅", b or "∅", n] for (a, b), n in c.most_common(args.top)] for z, c in top.items()},
              "seconds": round(time.time() - t0, 1)}
     Path("outputs/a3").mkdir(parents=True, exist_ok=True)
@@ -188,15 +229,53 @@ def main() -> None:
     ap.add_argument("--chunk", type=int, default=20000)
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--inspect-check", type=Path, default=None, help="사용자가 판정한 A-0d 검수 파일(EC dev)")
     args = ap.parse_args()
     t0 = time.time()
     freq = load_freq(args.freq)
     print(json.dumps({"freq_entries": len(freq), "load_sec": round(time.time() - t0, 1)}), flush=True)
     ana = MorphAnalyzer()
-    for name in args.sets.split(","):
-        st = run(name, args.split, args, ana, freq)
-        print(json.dumps({k: st[k] for k in ("set", "pairs", "edit_regions", "region_z", "kagas_vs_auto", "seconds")},
-                         ensure_ascii=False), flush=True)
+    sp = Path("datasets/morph/systematic_pairs.json")
+    if sp.exists():
+        systematic = frozenset((tuple(a), tuple(b)) for a, b, _ in json.loads(sp.read_text(encoding="utf-8")))
+    else:
+        systematic = collect_systematic(args, ana, freq)
+    if args.inspect_check:
+        inspect_check(args.inspect_check, ana, freq, systematic)
+        return
+    for name in [x for x in args.sets.split(",") if x]:
+        st = run(name, args.split, args, ana, freq, systematic)
+        print(json.dumps({k: st[k] for k in ("set", "pairs", "edit_regions", "region_z", "kagas_family_agreement",
+                                             "kagas_vs_auto", "seconds")}, ensure_ascii=False), flush=True)
+
+
+def inspect_check(path: Path, ana, freq, systematic) -> None:
+    import re
+    text = path.read_text(encoding="utf-8")
+    items = re.findall(r"^## \d+\. (\S+) .*?(?=^## |\Z)", text, flags=re.S | re.M)
+    judged = {}
+    for block in re.split(r"^## \d+\. ", text, flags=re.M)[1:]:
+        unit = block.split()[0]
+        judged[unit] = re.findall(r"판정: (.*)$", block, flags=re.M)
+    recs = {}
+    with open("datasets/ec/dev.jsonl", encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            if r["unit_id"] in judged:
+                recs[r["unit_id"]] = r
+    fq = lambda w: freq.get(w, 0)      # noqa: E731
+    rows = Counter()
+    for unit in items:
+        r = recs[unit]
+        ys, xs = ana.spans(r["y"]), ana.spans(r["x"])
+        regs = [g for g in align_pair(r["y"], r["x"], [Span(*q) for q in ys]) if g.kind == "edit"]
+        for g, j in zip(regs, judged[unit]):
+            _, rz, _, _ = analyze_region(r["y"], r["x"], g, ys, xs, fq, systematic)
+            lab = "bad" if j.startswith("bad") else "ok"
+            rows[(lab, rz)] += 1
+            if lab == "bad" or rz == "VARIANT":
+                print(json.dumps({"x": g.x_seg, "y": g.y_seg, "auto_z": rz, "user": j}, ensure_ascii=False))
+    print(json.dumps({"user_x_auto": {f"{a}/{b}": n for (a, b), n in sorted(rows.items())}}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
