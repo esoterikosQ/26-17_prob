@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hnc.corrupt import KINDS, corrupt  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
-from hnc.morph_lm import MorphLM  # noqa: E402
+from hnc.morph_lm import LN10, MorphLM, load_lm  # noqa: E402
 
 DEV = {
     "ec2": (Path("datasets/ec/dev.jsonl"), lambda r: r["keyboard"] == "2벌식(쿼티)"),
@@ -35,7 +35,7 @@ _LM = None
 _PCFG = None
 
 
-def perplexity(lm: MorphLM, path: Path) -> dict:
+def perplexity(lm, path: Path) -> dict:
     lp10 = 0.0
     n_tok = n_sent = n_oov = 0
     with open(path, encoding="utf-8") as f:
@@ -43,7 +43,7 @@ def perplexity(lm: MorphLM, path: Path) -> dict:
             toks = line.split()
             if not toks:
                 continue
-            lp10 += lm.model.score(line.strip(), bos=True, eos=True)
+            lp10 += lm.score_tokens(toks) / LN10
             n_tok += len(toks)
             n_sent += 1
             n_oov += lm.oov(toks)
@@ -73,18 +73,21 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--pcfg-root", type=Path, default=Path.home() / "projects/phdq_pcfg2")
     ap.add_argument("--no-pcfg", action="store_true")
+    ap.add_argument("--lm", default=None, help="LM 경로(쉼표로 여럿이면 보간); 주면 --tag 디렉토리의 lm 대신")
+    ap.add_argument("--lm-weights", default=None)
+    ap.add_argument("--dev-dir", type=Path, default=None, help="dev_*.txt 위치(기본: --tag 디렉토리)")
     args = ap.parse_args()
     d = Path("datasets/lm") / args.tag
 
     t0 = time.time()
-    _LM = MorphLM(d / f"lm{args.order}.bin")
+    _LM = load_lm(args.lm, args.lm_weights) if args.lm else MorphLM(d / f"lm{args.order}.bin")
     if not args.no_pcfg:
         sys.path.insert(0, str(args.pcfg_root))
         from pcfg.score import PCFGScorer
         _PCFG = PCFGScorer.load(args.pcfg_root / "data/models/pcfg_best.pkl")
     print(json.dumps({"load_sec": round(time.time() - t0, 1), "order": _LM.order}), flush=True)
 
-    ppl = {p.stem[4:]: perplexity(_LM, p) for p in sorted(d.glob("dev_*.txt"))}
+    ppl = {p.stem[4:]: perplexity(_LM, p) for p in sorted((args.dev_dir or d).glob("dev_*.txt"))}
     print(json.dumps({"perplexity": ppl}, ensure_ascii=False), flush=True)
 
     rng = random.Random(args.seed)
