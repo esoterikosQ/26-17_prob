@@ -302,7 +302,8 @@ class MorphChannel:
                 ins[f"{_key(m2)}|{lt}"] = -math.log(min(n / (n_tag[lt] + beta), 1.0))
         dele = defaultdict(list)
         for (m, lt), n in n_del_lt.items():
-            if n < min_count:
+            # 분모 N(lt, m)은 조사·어미만 세므로(추출 단계) 삭제 복원도 조사·어미만 추정한다.
+            if n < min_count or m[1][0] not in "JE":
                 continue
             p_m = n_del[m] / (uni.get(m, 0) + beta)
             p = (n + beta * p_m) / (bi.get((lt, m[0], m[1]), 0) + beta)
