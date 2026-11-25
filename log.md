@@ -435,3 +435,92 @@ python scripts/align_sample.py --n 5000 --inspect 100 --seed 0     # itcerdo, 2 
 ```
 
 - 결과: 표집 모집단 3,499쌍, 검수 100쌍 / 편집 구간 136개 → gsm `outputs/a0d/inspect_v2.md`로 복사. v1 파일(사용자 판정 9쌍 포함)은 그대로 둠. 미리 본 결함 예: 1번 `마져 ⇒ 맞아.`에서 이웃한 부호 `.`가 편집 구간에 흡수돼 `[.→ᅧ]` 같은 부자연스러운 자모 치환이 생김 — 검수에서 이런 사례의 빈도를 확인할 것.
+
+### 15:32–16:05 · 검수 대기 중 작업 계획 [gsm]
+
+- 사용자 요청: A-0d v2 검수 동안 다음 작업 진행. 검수와 무관한 것만 고름 — (1) pcfg2 K4 남은 실험(좌분지·v=3·전종단 주석, `phdq_pcfg2/log.md`), (2) A-2 다음 항목 v0·v1 보간, (3) B-0 통과에 따른 B-1~B-3 신경 LM 재채점, (4) A-6 채널 베이즈화(VB). A-3(형태소 채널)은 검수 뒤.
+
+### 15:40–15:55 · A-2 LM 보간(v0 영역 내 + v1 신문) [gsm, itcerdo]
+
+- 작업: `hnc/morph_lm.py` — LM 증분 인터페이스 `begin/extend/end`(디코더가 KenLM을 직접 부르지 않게), 토큰 단위 선형 보간 `InterpLM`(P(w|h) = Σ w_k P_k(w|h), 상태 = 성분 상태 튜플, 가중치 0 성분은 싣지 않음), `load_lm("a,b", "w0,w1")`. `decode.py`·`rescore.py`·`eval_lm.py`에 `--lm` 쉼표·`--lm-weights`. `scripts/interp_lm.py`(성분별 토큰 log10 P를 한 번 구하고 격자 계산). 테스트 `tests/test_morph_lm.py` 5개(증분 = 문장 점수, 같은 모형 보간 = 항등, 토큰별 혼합 손계산, 가중치 0). 커밋 `9d48630`, `e64a465`.
+
+```bash
+python scripts/interp_lm.py      # w = v0 가중치, 격자 0~1
+python scripts/eval_lm.py --tag v0 --lm datasets/lm/v0/lm5.bin,datasets/lm/v1/lm5.bin --lm-weights 0.8,0.2 --n 2000 --workers 12
+python scripts/decode.py --set native --split dev --channel datasets/channel/ec2_native_em --lm <v0,v1> --lm-weights 0.8,0.2 --lam-lm 0.5,1,1.5,2 --lam-len 0 --tag native_interp08_em
+python scripts/decode.py --records datasets/ec_gold/ec2_dev5k/records.jsonl --gold-m2 … --channel datasets/channel/ec2_native --lm <v0,v1> --lm-weights 0.8,0.2 --lam-lm 1,1.5,2,3 --tag ec2_dev5k_interp08_bm
+```
+
+- 결과 — dev 퍼플렉시티(v0 / v1 / **보간 w=0.8**): EC2 51.7 / 102.2 / **51.7**(집합별 최적 w=0.9: 50.9), Learner 41.2 / 51.2 / **36.2**, Lang8 55.7 / 80.8 / **49.8**, Native 22.7 / 39.3 / **19.3**; 묶음 49.2 / 82.7 / **46.2**(묶음·기하평균 모두 w=0.8 최적).
+- 판별력(LM 원점수, 조사 삭제는 형태소당; v0 → v1 → 보간): 격조사 대치 EC2 .918 → .925 → **.937**, Learner .936 → .944 → **.951**, Lang8 .910 → .929 → **.934**; 어순 대부분 최고; 종결→연결어미는 v1보다 약간 낮음(EC2 .905 → .884, Lang8 .922 → .911).
+- 디코딩 F0.5(전체):
+
+| 집합 (채널) | v1 | **보간 0.8/0.2** |
+|---|---:|---:|
+| Kor-Native dev (EM) | 0.693 (λ_LM 0.5) | **0.734** (λ_LM 0.5; P .850 R .474), WS+SPELL .598 → .648 |
+| EC dev 5k (BM) | 0.498 (λ_LM 2) | **0.518** (λ_LM 1) |
+
+### 15:55–16:00 · ⚠ Kor-Native 공식 분할의 정답 중복 발견 [itcerdo]
+
+- 보간 이득이 너무 커서 누출을 점검: **Kor-Native dev 정답 y의 67.1%(test 65.5%)가 train 정답에 그대로 있음**(오류문 x는 0%만 겹침 — 같은 정답 문장에 서로 다른 오류를 입힌 쌍이 분할을 가로질러 흩어짐). Learner 0.7%, Lang8 0.8~1.0%. EC2 dev는 v0 train 문장과 20%가 같음(짧은 상투 발화 위주). → 공식 분할 자체의 성질이라 train을 쓰는 모든 모형(seq2seq 포함)이 같은 혜택을 받지만, **영역 내 LM이 train 정답을 외워 Native 점수가 부풂.** 이전 Native 수치(0.671~0.717)도 v1이 v0 자료를 포함하므로 정도는 작지만 같은 영향을 받았음.
+- 대응: `scripts/split_eval.py` — dev를 "정답이 train 정답에 있음(겹침, 1,768문장)"과 "없음(새 문장, 866문장)"으로 나눠 같은 가설을 다시 채점. **앞으로 Native는 전체와 새 문장 부분을 함께 보고한다.**
+
+| Native dev (EM 채널, λ_LM 0.5) | 겹침 F0.5 | **새 문장 F0.5** |
+|---|---:|---:|
+| v1 | 0.711 | 0.642 |
+| 보간 0.8/0.2 | 0.762 (+5.1) | **0.647 (+0.5)** |
+
+- 해석: 보간 이득의 대부분은 겹침 부분(정답 암기). 새 문장에서는 +0.5(λ_LM 1.0이면 0.624 → 0.643, +1.8). 퍼플렉시티 개선도 같은 이유로 Native에서 과대평가됨(Learner·Lang8의 개선은 겹침 1% 미만이라 유효).
+
+### 15:58–16:25 · B-1~B-3 신경 LM 재채점, B-5 PCFG 한계기여 재측정 [gsm, itcerdo]
+
+- 환경: `.venv-nlm`(저장소 안, git 제외 — `.gitignore` 추가): torch 2.11.0+cu128, transformers 5.24.1, RTX 5090 32 GB 인식. pip는 `--no-cache-dir`, `HF_HOME`은 저장소 `.cache/huggingface`. 모델은 safetensors만 받음: `EleutherAI/polyglot-ko-1.3b`(인과, 2.8 GB), `klue/roberta-large`(마스크, 1.4 GB). 디스크 여유 45 → 35 GB.
+- **B-1 결정(토크나이저 불일치 처리)**: 신경 LM은 **표층 문장 전체**를 자기 토크나이저로 채점한다. 문장 확률은 토큰화와 무관한 양이라 형태소 LM·PCFG 점수와 그대로 가중합할 수 있고, 형태소 ↔ 하위어 정렬이 필요 없다. 인과: log P(y)(BOS·EOS 포함), 마스크: PLL(Salazar et al. 2020, 토큰을 하나씩 가려 예측).
+- 작업: `scripts/nlm_score.py`(n-best 고유 문장 채점 → `nlm_<이름>.jsonl`), `rescore.py --nlm/--lam-nlm`(점수 = λ_LM·LM − 채널 + λ_P·PCFG + λ_len·|m| + Σ λ_N·NLM), 격자 평가를 스레드 병렬로. 커밋 `c94d770`, `72cd760`.
+
+```bash
+python scripts/rescore.py --set native --split dev --channel datasets/channel/ec2_native_em --lm <v0,v1> --lm-weights 0.8,0.2 --base-lam-lm 0.5 --nbest 8 --tag native_interp_em
+python scripts/rescore.py --records …/ec2_dev5k/records.jsonl --gold-m2 … --channel datasets/channel/ec2_native --lm <v0,v1> --lm-weights 0.8,0.2 --base-lam-lm 1.0 --nbest 8 --tag ec2_dev5k_interp_bm
+.venv-nlm/bin/python scripts/nlm_score.py --tag <tag> --model EleutherAI/polyglot-ko-1.3b --kind causal --name pko13
+.venv-nlm/bin/python scripts/nlm_score.py --tag <tag> --model klue/roberta-large --kind masked --name rbl --batch-size 512
+python scripts/rescore.py … --from-nbest --nlm pko13,rbl --lam-lm … --lam-pcfg … --lam-len 0,1 --lam-nlm 0,0.1,0.25,0.5,1 --out-name summary_nlm.json   # 450 설정
+python scripts/split_eval.py --set native --dirs outputs/rescore/native_interp_em --hyps …
+```
+
+- 결과: 보간 LM n-best 생성 Native 49 s(오라클 **0.825**), EC 51 s(오라클 0.560). 신경 LM 채점 2만 문장당 인과 11 s(GPU 3.4 GB), PLL 42 s.
+
+| 재채점 설정 (dev에서 고른 λ) | Native 전체 F0.5 | **Native 새 문장** | EC dev 5k |
+|---|---:|---:|---:|
+| 1-best (형태소 LM 보간 + 채널) | 0.734 | 0.647 | 0.518 |
+| + PCFG | 0.753 | 0.676 | 0.519 |
+| + 인과 LM (polyglot-ko-1.3b) | 0.762 | 0.693 | 0.518 |
+| + 마스크 LM (klue/roberta-large PLL) | 0.739 | – | 0.525 |
+| + 인과 + 마스크 | 0.773 | **0.713** | 0.526 |
+| + 인과 + 마스크 + PCFG | **0.776** (P .870 R .541) | 0.707 | **0.527** |
+| n-best 오라클 | 0.825 | 0.800 | 0.560 |
+
+  - 최고 λ: Native 전체 (λ_LM .5, λ_P .3, λ_pko .5, λ_rbl .1), 인과+마스크 (λ_LM .5, λ_pko 1, λ_rbl .1); EC (λ_LM 1, λ_P .1, λ_rbl .1). 길이 항(λ_len 1)은 어디서도 선택되지 않음.
+- 해석: (1) **신경 LM 이득이 가장 큼 — 새 문장 부분에서 오히려 더 큼(+6.7)** → 정답 암기가 아닌 일반화. (2) **B-5(강한 LM 위의 PCFG 한계기여): Native 전체 +0.3, 새 문장 −0.6, EC +0.1 → 사실상 0.** 약한 LM(형태소 n-gram) 위에서는 +1.9 / 새 문장 +2.9였음 — 설계서 절제표 5행 대 8행의 대비가 실측으로 나옴. (3) EC 이득이 작은 것은 오라클 상한(0.56)과 범위 밖 부호 편집 때문. (4) λ를 450개 격자에서 dev로 골라 낙관적 → test는 마지막에 한 번만. 후보: 더 큰 인과 LM(polyglot-ko-5.8b, 12 GB).
+
+### 16:05–16:40 · A-6 채널 베이즈화(희소 디리클레 VB-EM), 사후 집중 곡선, 채널 비교 [gsm, itcerdo]
+
+- 작업: `hnc/channel_em.py` — `vb_em`(편집쌍 결합 분포 δ ~ Dir(α·1), 평균장 q(δ) = Dir(α + 기대 계수); E단계는 δ̃ = exp(ψ(a_k) − ψ(Σa))로 전·후진 계산; ELBO = Σ log Z̃ − KL(q‖p)), `digamma`(점근 급수, scipy 없음), `dirichlet_kl`, `conditional_posterior`(Dir의 부분 벡터 정규화 = Dir(a_{α,·})로 조건부 δ(β|α)의 사후 평균·표준편차를 닫힌 꼴로), `subsample`(창 계수 이항 표집), `em(max_len=)`. `scripts/vb_channel.py`(비율 0.1/0.25/0.5/1 → 곡선, 비율 1 → 디코더용 채널). 테스트 3개 추가(ψ·KL 값, ELBO 단조, 자료 10배 시 표준편차 감소) → 6 passed. 커밋 `6d383d5`, `0aa18cb`.
+
+```bash
+python scripts/vb_channel.py --alpha 0.1                       # 비율 4개, 각 1.7~4.7 s
+python scripts/vb_channel.py --alpha 0.01 --fracs 1
+python scripts/vb_channel.py --alpha 0.1 --fracs 1 --max-len 2
+python scripts/decode.py … --channel datasets/channel/{ec2_native, ec2_native_em, ec2_native_vb_a0.1} --lm <v0,v1> --lm-weights 0.8,0.2
+```
+
+- 결과 — **ELBO 단조 증가**(모든 비율, 예: 비율 1 −80,280,143 → −78,756,308). **사후 집중 곡선**(BM 계수 상위 20개 편집의 조건부 확률 변동계수 중앙값): 비율 0.1 → 0.25 → 0.5 → 1: **0.0148 → 0.0085 → 0.0057 → 0.0039**(자료 10배에 3.8배 감소 ≈ N^{-1/2}). 활성 편집쌍(기대 계수 ≥ 0.5) 5,287 → 9,032 → 13,268 → 19,014(α < 1의 희소화: 자료가 적을수록 적은 편집만 남음).
+- 결과 — 긴 조각 퇴화는 **그대로**: dev 창당 로그우도(사후 평균 δ) 초기 −9.00 → 1회 −9.73 → 5회 −9.61(α = 0.1), −9.63(α = 0.01) — MAP-EM(−9.64)과 같음. 최대 조각 길이 2로 줄여도 −10.14 → −10.60(전체 수준만 낮아지고 같은 하락). → 원인은 조각 길이가 아니라 **결합 분할 EM의 부익부**(학습 창의 문맥에 묶인 편집으로 질량이 이동해 처음 보는 문맥으로 일반화가 약해짐). 희소 사전분포는 큰 계수를 건드리지 못하므로 해결책이 아님. 후보: 문맥 편집을 문맥 없는 편집에서 생성하는 계층 사전분포(기저 측도 = 짧은 편집의 합성, Goldwater류), 또는 문맥 편집을 분할 잠재변수 밖에 두는 조건부 모형.
+- 결과 — 채널 비교(보간 LM, λ_LM 0.5 / EC는 1.0; F0.5 전체, Native는 새 문장 부분·WS+SPELL 함께):
+
+| 채널 | Native 전체 | Native 새 문장 | Native 새 문장 WS+SPELL | EC dev 5k |
+|---|---:|---:|---:|---:|
+| Brill–Moore (A-1b) | 0.711 | 0.628 | **0.565** | **0.518** |
+| MAP-EM (A-1c) | 0.734 | 0.647 | 0.522 | 0.508 |
+| VB-EM α 0.1 (A-6) | **0.735** | **0.649** | 0.524 | 0.508 |
+
+- 해석: VB ≈ MAP-EM(사후 평균이 MAP과 거의 같은 큰 자료 영역). EM 계열은 Native의 WS+SPELL 밖 유형(구어체 어미 등 문맥 의존 편집)을 더 고쳐 전체 F0.5가 오르지만, 띄어쓰기·맞춤법 자체와 EC에서는 BM이 낫다 — 퇴화와 같은 방향. 기본 채널 결정은 여전히 보류(유형별 평가가 생기는 A-3 뒤에 결정).
