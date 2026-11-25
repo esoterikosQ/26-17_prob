@@ -626,7 +626,7 @@ python scripts/make_jamo_only_pairs.py; python scripts/extract_edits.py --source
 - E단계 결과: 사후확률은 대부분 0 또는 1 근처(규칙 z가 대체로 확신 있는 쪽). KAGAS 부류 일치 Kor-Learner **76.3 → 77.1%**, Lang8 59.2 → 60.2%. 뒤집힌 것: 규칙 ENDING → SPELL 1,008, PARTICLE → SPELL 763, LEXICAL → SPELL 580, DEL → SPELL 340(Learner; 자모 채널이 더 싸게 설명), SPELL → INS 68 등.
 - A-3d EC·Native: `extract_morph_edits --sets ec2`(EC 2벌식 train 전부 899,544쌍, 편집 구간 314,558: SPELL 171,298, ENDING 73,404, LEXICAL 32,396, VARIANT 13,113, DEL 11,734, INS 8,512, PARTICLE 4,101) → 자모 층위 쌍(되돌린 구간 EC 143,260 / Native 6,323) → 자모 채널 `ec2_native_J`, 형태소 채널 `native_ec2`. 주의: EC 형태소 대치 최다가 `었 → 엇`(12,401) — 사실상 ㅆ → ㅅ 타자 오타인데 Kiwi가 x를 엇/EP로 분석하고 규칙은 조사·어미끼리의 차이를 형태소 편집으로 두므로 ENDING이 됨. 이런 모호성이 EM(자모 경로가 ㅆ → ㅅ을 내용어 오타에서 배워 더 싸게 설명)이 풀 대상.
 
-### 19:35–20:05 · A-3 결과: 학습자 신경 LM 재채점, EM 효과, EC·Native 계층 분리 [itcerdo]
+### 19:35–19:47 · A-3 결과: 학습자 신경 LM 재채점, EM 효과, EC·Native 계층 분리 [itcerdo]
 
 ```bash
 python scripts/rescore.py --set korean_learner --split dev --channel datasets/channel/learner_lang8_J --morph-channel datasets/morph_channel/learner --morph-max-cands 30 --base-lam-lm 1.0 --nbest 8 --tag learner_JJ_Ml30   # + nlm_score pko13·rbl + --from-nbest 격자
