@@ -60,6 +60,9 @@ class DecoderConfig:
     lam_ch: float = 1.0
     lam_len: float = 0.0
     merge_spans: bool = True
+    morph_max_cands: int = 12     # 어절당 형태소 편집 후보 수(편집 1개)
+    morph_two_edits: bool = False  # 상위 형태소 후보에 편집 하나를 더(어절당 2개)
+    morph_combine: int = 0        # 형태소 편집을 얹을 자모 후보 수(오타 + 조사 오류가 한 어절에 겹친 경우)
 
 
 def _in_scope(sym: str) -> bool:
@@ -224,21 +227,41 @@ class Decoder:
                 out[k].append((t.form, t.tag, t.start - offs[k][0]))
         return out
 
-    def _morph_candidates(self, core: str, lead: str, ms, lt0: str) -> List[Tuple[str, float, str]]:
+    def _realize(self, ms2) -> Optional[str]:
+        if not ms2:
+            return None
+        try:
+            return self.ana.kiwi.join(ms2)
+        except Exception:
+            return None
+
+    def _morph_edits(self, inside, lt0: str) -> List[Tuple[list, str, float]]:
+        cfg = self.cfg
+        first = self.mc.candidates(inside, lt0, max_cands=cfg.morph_max_cands)
+        if not cfg.morph_two_edits:
+            return first
+        out = list(first)
+        for ms1, z1, d1 in first[:5]:
+            for ms2, z2, d2 in self.mc.candidates(ms1, lt0, max_cands=5):
+                out.append((ms2, f"{z1}+{z2}", d1 + d2))
+        return out
+
+    def _morph_candidates(self, core: str, lead: str, ms, lt0: str, jamo_cands=()) -> List[Tuple[str, float, str]]:
+        """[(y 핵심, 원문 동일 비용 대비 비용 증분, z)]. ``jamo_cands``: [(자모 후보, 그 후보의 비용 증분)] —
+        오타를 고친 자모 후보 위에 형태소 편집을 얹는다(z = JAMO+…)."""
         from .morph_channel import is_punct
         inside = [(f, t) for f, t, a in ms if len(lead) <= a < len(lead) + len(core) and not is_punct((f, t))]
-        if not inside:
-            return []
+        bases = [(inside, 0.0, "")] if inside else []
+        for yj, dj in jamo_cands:
+            mj = [(t.form, t.tag) for t in self.ana.kiwi.tokenize(yj) if not is_punct((t.form, t.tag))]
+            if mj:
+                bases.append((mj, dj, "JAMO+"))
         out = []
-        for ms2, z, d in self.mc.candidates(inside, lt0):
-            if not ms2:
-                continue
-            try:
-                y = self.ana.kiwi.join(ms2)
-            except Exception:
-                continue
-            if y and y != core and " " not in y and has_hangul(y) and self.gen._in_vocab(y):
-                out.append((y, d, z))
+        for base_ms, d0, zp in bases:
+            for ms2, z, d in self._morph_edits(base_ms, lt0):
+                y = self._realize(ms2)
+                if y and y != core and " " not in y and has_hangul(y) and self.gen._in_vocab(y):
+                    out.append((y, d0 + d, zp + z))
         return out
 
     def _add_path(self, i: int, y: str, z: str, c: float) -> None:
@@ -257,7 +280,9 @@ class Decoder:
                     prev = [m for m in xm[i - 1] if not _punct_tag(m[1])] if i > 0 else []
                     lt0 = prev[-1][1] if prev else "BOS"
                     merged: Dict[str, float] = dict(cands)
-                    for y, d, z in self._morph_candidates(core, lead, xm[i], lt0):
+                    jc = sorted(((y, c - base) for y, c in cands if y != core and " " not in y),
+                                key=lambda yc: yc[1])[:self.cfg.morph_combine]
+                    for y, d, z in self._morph_candidates(core, lead, xm[i], lt0, jc):
                         c = base + d
                         merged[y] = _neglog_add(merged[y], c) if y in merged else c
                         self._add_path(i, lead + y + trail, z, c)
