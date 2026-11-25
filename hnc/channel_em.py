@@ -93,7 +93,7 @@ def normalize(counts: Dict[Pair, float], prior: float) -> Dict[Pair, float]:
 
 def em(windows: Sequence[Tuple[Sym, Sym, int]], outside_identity: Dict[str, float],
        init_counts: Dict[Pair, float], iterations: int = 5, prior: float = 0.01,
-       dev_windows: Sequence[Tuple[Sym, Sym, int]] = (), log=print):
+       dev_windows: Sequence[Tuple[Sym, Sym, int]] = (), log=print, max_len: int = MAX_LEN):
     """MAP-EM. 반환: (마지막 기대 계수, 반복별 기록)."""
     inventory = list(init_counts)
     delta = normalize(init_counts, prior)
@@ -104,7 +104,7 @@ def em(windows: Sequence[Tuple[Sym, Sym, int]], outside_identity: Dict[str, floa
         ll = 0.0
         unreachable = 0
         for y, x, c in windows:
-            Z, ec = forward_backward(y, x, delta)
+            Z, ec = forward_backward(y, x, delta, max_len)
             if Z == 0.0:
                 unreachable += c
                 continue
@@ -118,7 +118,7 @@ def em(windows: Sequence[Tuple[Sym, Sym, int]], outside_identity: Dict[str, floa
         dev_ll = 0.0
         dev_n = 0
         for y, x, c in dev_windows:
-            Z, _ = forward_backward(y, x, delta)
+            Z, _ = forward_backward(y, x, delta, max_len)
             if Z > 0:
                 dev_ll += c * math.log(Z)
                 dev_n += c
@@ -128,6 +128,114 @@ def em(windows: Sequence[Tuple[Sym, Sym, int]], outside_identity: Dict[str, floa
         log(rec)
         delta = normalize(counts, prior)
     return counts, history
+
+
+# ---------------------------------------------------------------------------
+# A-6 베이즈화: 희소 디리클레 사전분포 + 평균장 변분 EM (Beal 2003, Johnson 2007)
+# ---------------------------------------------------------------------------
+def digamma(x: float) -> float:
+    r = 0.0
+    while x < 6.0:
+        r -= 1.0 / x
+        x += 1.0
+    f = 1.0 / (x * x)
+    return r + math.log(x) - 0.5 / x - f * (1 / 12 - f * (1 / 120 - f * (1 / 252 - f * (1 / 240 - f / 132))))
+
+
+def dirichlet_kl(post: Dict[Pair, float], alpha: float) -> float:
+    """KL(Dir(post) ‖ Dir(alpha·1)) (같은 목록 위)."""
+    K = len(post)
+    a0 = sum(post.values())
+    dg0 = digamma(a0)
+    kl = math.lgamma(a0) - math.lgamma(alpha * K) + K * math.lgamma(alpha)
+    for a in post.values():
+        kl += -math.lgamma(a) + (a - alpha) * (digamma(a) - dg0)
+    return kl
+
+
+def vb_weights(post: Dict[Pair, float]) -> Dict[Pair, float]:
+    """exp(E_q[log δ]) = exp(ψ(a_k) − ψ(Σa)) — 합이 1보다 작은 부분 정규화 가중치."""
+    dg0 = digamma(sum(post.values()))
+    return {k: math.exp(digamma(a) - dg0) for k, a in post.items()}
+
+
+def vb_em(windows: Sequence[Tuple[Sym, Sym, int]], outside_identity: Dict[str, float],
+          init_counts: Dict[Pair, float], iterations: int = 5, alpha: float = 0.1,
+          dev_windows: Sequence[Tuple[Sym, Sym, int]] = (), log=print, max_len: int = MAX_LEN):
+    """편집쌍 결합 분포 δ ~ Dir(α·1)의 평균장 VB-EM. q(δ) = Dir(α + 기대 계수).
+
+    E단계는 δ̃ = exp(E_q log δ)로 전·후진 계산을 하고, ELBO = Σ log Z̃ − KL(q(δ) ‖ p(δ))는 반복마다
+    단조 증가한다(구현 정합성 점검용). α < 1이면 쓰이지 않는 편집쌍의 사후 가중치가 크게 줄어든다
+    (ψ(α + c) ≈ log(c − 1/2)라 작은 계수일수록 상대적으로 더 깎임).
+    반환: (마지막 기대 계수, 사후 매개변수 a, 반복별 기록).
+    """
+    inventory = list(init_counts)
+    post = {k: alpha + init_counts[k] for k in inventory}
+    history = []
+    counts: Dict[Pair, float] = {}
+    for it in range(1, iterations + 1):
+        w = vb_weights(post)
+        counts = {k: 0.0 for k in inventory}
+        ll = 0.0
+        unreachable = 0
+        for y, x, c in windows:
+            Z, ec = forward_backward(y, x, w, max_len)
+            if Z == 0.0:
+                unreachable += c
+                continue
+            ll += c * math.log(Z)
+            for k, v in ec.items():
+                counts[k] += c * v
+        for s, c in outside_identity.items():
+            counts[((s,), (s,))] += c
+            ll += c * math.log(w[((s,), (s,))])
+        kl = dirichlet_kl(post, alpha)
+        a0 = sum(post.values())
+        mean = {k: a / a0 for k, a in post.items()}
+        dev_ll = 0.0
+        dev_n = 0
+        for y, x, c in dev_windows:
+            Z, _ = forward_backward(y, x, mean, max_len)
+            if Z > 0:
+                dev_ll += c * math.log(Z)
+                dev_n += c
+        rec = {"iter": it, "expected_ll": ll, "kl": kl, "elbo": ll - kl, "unreachable": unreachable,
+               "dev_ll_per_window": dev_ll / dev_n if dev_n else None,
+               "active_pairs": sum(1 for v in counts.values() if v >= 0.5)}
+        history.append(rec)
+        log(rec)
+        post = {k: alpha + counts[k] for k in inventory}
+    return counts, post, history
+
+
+def conditional_posterior(post: Dict[Pair, float], keys: Sequence[Pair]) -> Dict[Pair, Tuple[float, float]]:
+    """q(δ) = Dir(a)에서 조건부 δ(β|α) = δ(α,β)/Σ_β' δ(α,β')의 사후 평균·표준편차.
+
+    디리클레의 부분 벡터를 정규화하면 다시 디리클레(Dir(a_{α,·}))이므로 닫힌 꼴로 계산된다.
+    """
+    row: Dict[Sym, float] = {}
+    for (a, b), v in post.items():
+        row[a] = row.get(a, 0.0) + v
+    out = {}
+    for k in keys:
+        A = row[k[0]]
+        m = post[k] / A
+        out[k] = (m, math.sqrt(m * (1 - m) / (A + 1)))
+    return out
+
+
+def subsample(windows: Sequence[Tuple[Sym, Sym, int]], outside: Dict[str, float], frac: float, seed: int = 0):
+    """창 토큰을 비율 ``frac``로 이항 표집(창 종류별 계수 c → Binomial(c, frac)), 창 밖 계수는 비례 축소."""
+    import random
+    rng = random.Random(seed)
+    if frac >= 1.0:
+        return list(windows), dict(outside)
+    out = []
+    for y, x, c in windows:
+        k = sum(rng.random() < frac for _ in range(c)) if c < 64 else max(0, round(rng.gauss(c * frac, math.sqrt(c * frac * (1 - frac)))))
+        if k:
+            out.append((y, x, k))
+    return out, {s: c * frac for s, c in outside.items()}
 
 
 def params_from_counts(counts: Dict[Pair, float], alpha_rows: List[dict], kappa: float = 1.0,
