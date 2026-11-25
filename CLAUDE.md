@@ -33,6 +33,7 @@ $$\hat y = \arg\max_y \sum_{m'} P_M(m'|m)\,P_J(x|m') \cdot P_{\text{PCFG}}(t^*(y
 - **itcerdo**: `~/projects/phdq_prob` 안에서만 작업한다(이 디렉토리 밖 접근 금지). 저장소 루트에서 `source .venv/bin/activate` 후 실행. sudo 없음. 장시간 작업은 tmux에서 돌리고 끝나면 세션을 닫는다.
 - **코드 이동은 GitHub(`esoterikosQ/26-17_prob`, public)로만**: gsm에서 push → itcerdo에서 `git pull`. itcerdo에서 추적 파일을 직접 고치지 않는다.
 - **데이터는 GitHub에 올리지 않는다**(공개 저장소, 재배포 금지). 원자료는 itcerdo의 `data/`, 파생 데이터는 `datasets/`, 실험 출력은 `outputs/`(모두 git 제외). 문서에는 수치·통계만 적는다. 예시 문장은 직접 만든 문장을 쓴다.
+- **끝난 실험의 기록 파일은 gsm 외장 디스크 `/Volumes/T31/phdq_prob/`로 옮긴다**(저장소 기준 상대 경로 유지, `MANIFEST.sha256`으로 확인 후 itcerdo에서 삭제, 목록·재생성 방법은 그곳 `README.md`). itcerdo `outputs/`에는 진행 중인 작업 파일만 둔다. 재생성 가능한 중간 파일(격자 가설 등)과 원본이 T31에 있는 압축 해제본은 지운다.
 - 캐시(pip, HF, Kiwi 모델 등)는 저장소 안 `.cache/`에 고정한다.
 - **읽기 전용 참조 디렉토리**: `phdq_noisy`, `phdq_pcfg`, `phdq_bart2`는 절대 수정하지 않는다.
 

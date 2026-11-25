@@ -524,3 +524,12 @@ python scripts/decode.py … --channel datasets/channel/{ec2_native, ec2_native_
 | VB-EM α 0.1 (A-6) | **0.735** | **0.649** | 0.524 | 0.508 |
 
 - 해석: VB ≈ MAP-EM(사후 평균이 MAP과 거의 같은 큰 자료 영역). EM 계열은 Native의 WS+SPELL 밖 유형(구어체 어미 등 문맥 의존 편집)을 더 고쳐 전체 F0.5가 오르지만, 띄어쓰기·맞춤법 자체와 EC에서는 BM이 낫다 — 퇴화와 같은 방향. 기본 채널 결정은 여전히 보류(유형별 평가가 생기는 A-3 뒤에 결정).
+
+### 16:17–16:35 · 파일 정리: 불필요 파일 삭제, 기록 파일은 T31로 [gsm, itcerdo]
+
+- 사용자 요청: 불필요한 파일은 지우고 기록만 남길 파일은 `/Volumes/T31`에 디렉토리를 만들어 옮김. 분류안(삭제·이동·유지)을 사용자가 승인, 보관 위치 `/Volumes/T31/phdq_prob`, LM v1 코퍼스는 압축 보관 후 삭제로 결정.
+- 이동(itcerdo → T31, 저장소 기준 상대 경로 유지): itcerdo에서 SHA-256 목록을 먼저 만들고 tar 스트림으로 옮긴 뒤 T31에서 `shasum -a 256 -c`로 **278개 전부 일치** 확인 후 삭제. 대상: `outputs/{a0b,a0c,a0d/run.log,a0d_kor,a1,a1c,a1d,a2,a6,ec_eval,kagas,m2smoke,interp_lm,kenlm/build.log}`, 대체된 n-best `rescore/{native_em,ec2_dev5k_bm}`, `rescore/*.log`, 기타 로그. 현재 n-best의 요약 10개는 사본만(원본 유지). gsm의 v1 검수 파일(사용자 판정 9쌍)은 `outputs/a0d/inspect_v1_user_judged.md`로 이동.
+  - 처음 목록에서 `outputs/a0d/run.log`, `rescore/native_em.log`·`ec2_dev5k_bm.log` 3개가 빠져 있어 삭제 전 점검에서 발견 → 같은 방식으로 옮기고 확인한 뒤 삭제.
+- LM v1 학습 코퍼스 `datasets/lm/v1/train.txt`(11.7 GB): itcerdo에서 `zstd -T16 -10` → 1.8 GB, `zstd -t` 통과, T31로 전송 후 압축 파일 해시 일치, **로컬에서 압축 해제한 스트림의 SHA-256이 원본과 일치**(61eb1e9c…) 확인 후 원본 삭제.
+- 삭제(재생성 가능 또는 원본이 T31에 있음): 신문 2024·2025 압축 해제본 7.4 GB(원본 zip은 `/Volumes/T31/NIKL`), pip·pytest 캐시, kenlm smoke 파일, 재채점 격자 가설 `hyp_*.txt`·`split_eval/`(n-best + 신경 LM 점수로 재생성), 실험용 채널 `ec2_native_vb_a0.01`·`_vb_a0.1_L2`(수 초면 재생성).
+- 결과: itcerdo 여유 33 GB → **57 GB**(phdq_prob 35 → 16 GB, phdq_pcfg2 4.1 → 0.9 GB). 정리 뒤 테스트 prob 89 passed, pcfg2 71 passed. 남은 `outputs/`: `a0d/inspect_v2.md`(검수 중), `rescore/native_interp_em`·`ec2_dev5k_interp_bm`(n-best·신경 LM 점수·요약). 보관 목록·무결성 확인·재생성 방법은 `/Volumes/T31/phdq_prob/README.md`. `CLAUDE.md`에 보관 규칙 추가.
