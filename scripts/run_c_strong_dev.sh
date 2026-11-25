@@ -3,10 +3,17 @@
 set -euo pipefail
 umask 077
 ROOT=outputs/c_gec2_dev_v1
+if (($# == 0)); then
+    set -- korean_learner lang8 union
+fi
+for d in "$@"; do
+    case "$d" in korean_learner|lang8|union) ;; *) echo "Unknown dev domain: $d" >&2; exit 2 ;; esac
+done
+status_file="$ROOT/queue.$(IFS=-; echo "$*").status"
 export TMPDIR="$PWD/.cache/tmp" XDG_CACHE_HOME="$PWD/.cache" HF_HOME="$PWD/.cache/huggingface"
 export CUDA_CACHE_PATH="$PWD/.cache/cuda" TORCHINDUCTOR_CACHE_DIR="$PWD/.cache/torchinductor"
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=1
-trap 'echo "$?" > "$ROOT/queue.status"' EXIT
+trap 'echo "$?" > "$status_file"' EXIT
 
 wait_input() {
     local file="$1" status="$2" until_time=$((SECONDS + 21600))
@@ -18,9 +25,9 @@ wait_input() {
         sleep 10
     done
 }
-for d in korean_learner lang8 union; do
+for d in "$@"; do
     dest="$ROOT/$d"
-    wait_input "$ROOT/restore/$d.sha256" "$ROOT/restore/retry.status"
+    wait_input "$ROOT/restore/$d.sha256" "${C_RESTORE_STATUS:-$ROOT/restore/retry.status}"
     if [[ "$d" != korean_learner ]]; then
         wait_input "$ROOT/beam/lang8.jsonl" "$ROOT/beam/status"
     fi
