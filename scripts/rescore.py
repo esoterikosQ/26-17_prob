@@ -35,6 +35,7 @@ from hnc.morph_lm import load_lm  # noqa: E402
 
 _DEC = None
 _PCFG = None
+_ANA = None
 _CFG = None
 _NB = 8
 
@@ -52,8 +53,16 @@ def _work(item):
     return i, out
 
 
+def _repcfg(item):
+    i, hyps = item
+    for h in hyps:
+        r = _PCFG.score([tuple(t) for t in _ANA.analyze(h["text"])])
+        h["pcfg"], h["parsed"] = r.logprob, r.parsed
+    return i, hyps
+
+
 def main() -> None:
-    global _DEC, _PCFG, _CFG, _NB
+    global _DEC, _PCFG, _CFG, _NB, _ANA
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", default="native")
     ap.add_argument("--split", default="dev")
@@ -72,12 +81,15 @@ def main() -> None:
     ap.add_argument("--lam-pcfg", default="0,0.02,0.05,0.1,0.2,0.3")
     ap.add_argument("--lam-len", default="0")
     ap.add_argument("--pcfg-root", type=Path, default=Path.home() / "projects/phdq_pcfg2")
+    ap.add_argument("--pcfg-model", type=Path, default=None, help="PCFG 채점기(기본: <pcfg-root>/data/models/pcfg_best.pkl)")
+    ap.add_argument("--repcfg", action="store_true", help="--from-nbest에서 PCFG 점수를 --pcfg-model로 다시 계산")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--tag", default="native_em_rescore")
     ap.add_argument("--from-nbest", action="store_true", help="outputs/rescore/<tag>/nbest.jsonl을 다시 쓰고 디코딩·PCFG 채점은 건너뜀")
     ap.add_argument("--nlm", default="", help="신경 LM 점수 이름(쉼표): outputs/rescore/<tag>/nlm_<이름>.jsonl")
     ap.add_argument("--lam-nlm", default="0,0.25,0.5,1", help="신경 LM 가중치 격자(이름마다 같은 목록)")
     ap.add_argument("--out-name", default=None, help="요약 파일 이름(기본: summary.json / summary_regrid.json)")
+    ap.add_argument("--hyp-prefix", default="", help="가설 파일 이름 접두어(다른 설정의 가설 파일을 덮어쓰지 않게)")
     args = ap.parse_args()
     out = Path("outputs/rescore") / args.tag
     out.mkdir(parents=True, exist_ok=True)
@@ -89,9 +101,11 @@ def main() -> None:
         _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min),
                                           JamoChannel(params, others), base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base)
         _CFG, _NB = base, args.nbest
+    pcfg_model = args.pcfg_model or args.pcfg_root / "data/models/pcfg_best.pkl"
+    if not args.from_nbest or args.repcfg:
         sys.path.insert(0, str(args.pcfg_root))
         from pcfg.score import PCFGScorer
-        _PCFG = PCFGScorer.load(args.pcfg_root / "data/models/pcfg_best.pkl")
+        _PCFG = PCFGScorer.load(pcfg_model)
 
     rec_path = args.records or Path("datasets/kor_gec") / f"{args.set}_{args.split}.jsonl"
     gold_path = args.gold_m2 or Path("data/kor_gec") / args.set / f"{args.set}_{SPLIT_FILE[args.split]}.m2"
@@ -106,6 +120,10 @@ def main() -> None:
     if args.from_nbest:
         with open(out / "nbest.jsonl", encoding="utf-8") as f:
             res = [(r["i"], r["hyps"]) for r in map(json.loads, f)]
+        if args.repcfg:
+            _ANA = MorphAnalyzer()
+            with mp.get_context("fork").Pool(args.workers) as pool:
+                res = sorted(pool.imap_unordered(_repcfg, res, chunksize=4))
     else:
         with mp.get_context("fork").Pool(args.workers) as pool:
             res = sorted(pool.imap_unordered(_work, list(enumerate(r["x"] for r in recs)), chunksize=4))
@@ -123,7 +141,7 @@ def main() -> None:
                 h[f"nlm_{name}"] = v["lp"]
 
     def evaluate(choose, name):
-        hyp = out / f"hyp_{name}.txt"
+        hyp = out / f"hyp_{args.hyp_prefix}{name}.txt"
         hyp.write_text("\n".join(choose(i, hyps) for i, hyps in res) + "\n", encoding="utf-8")
         return {"all": m2score(hyp, out / "gold_all.m2"), "a1": m2score(hyp, out / "gold_a1.m2")}
 
