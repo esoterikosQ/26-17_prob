@@ -472,7 +472,7 @@ python scripts/decode.py --records datasets/ec_gold/ec2_dev5k/records.jsonl --go
 
 - 해석: 보간 이득의 대부분은 겹침 부분(정답 암기). 새 문장에서는 +0.5(λ_LM 1.0이면 0.624 → 0.643, +1.8). 퍼플렉시티 개선도 같은 이유로 Native에서 과대평가됨(Learner·Lang8의 개선은 겹침 1% 미만이라 유효).
 
-### 15:58–16:25 · B-1~B-3 신경 LM 재채점, B-5 PCFG 한계기여 재측정 [gsm, itcerdo]
+### 15:58–16:10 · B-1~B-3 신경 LM 재채점, B-5 PCFG 한계기여 재측정 [gsm, itcerdo]
 
 - 환경: `.venv-nlm`(저장소 안, git 제외 — `.gitignore` 추가): torch 2.11.0+cu128, transformers 5.24.1, RTX 5090 32 GB 인식. pip는 `--no-cache-dir`, `HF_HOME`은 저장소 `.cache/huggingface`. 모델은 safetensors만 받음: `EleutherAI/polyglot-ko-1.3b`(인과, 2.8 GB), `klue/roberta-large`(마스크, 1.4 GB). 디스크 여유 45 → 35 GB.
 - **B-1 결정(토크나이저 불일치 처리)**: 신경 LM은 **표층 문장 전체**를 자기 토크나이저로 채점한다. 문장 확률은 토큰화와 무관한 양이라 형태소 LM·PCFG 점수와 그대로 가중합할 수 있고, 형태소 ↔ 하위어 정렬이 필요 없다. 인과: log P(y)(BOS·EOS 포함), 마스크: PLL(Salazar et al. 2020, 토큰을 하나씩 가려 예측).
@@ -502,7 +502,7 @@ python scripts/split_eval.py --set native --dirs outputs/rescore/native_interp_e
   - 최고 λ: Native 전체 (λ_LM .5, λ_P .3, λ_pko .5, λ_rbl .1), 인과+마스크 (λ_LM .5, λ_pko 1, λ_rbl .1); EC (λ_LM 1, λ_P .1, λ_rbl .1). 길이 항(λ_len 1)은 어디서도 선택되지 않음.
 - 해석: (1) **신경 LM 이득이 가장 큼 — 새 문장 부분에서 오히려 더 큼(+6.7)** → 정답 암기가 아닌 일반화. (2) **B-5(강한 LM 위의 PCFG 한계기여): Native 전체 +0.3, 새 문장 −0.6, EC +0.1 → 사실상 0.** 약한 LM(형태소 n-gram) 위에서는 +1.9 / 새 문장 +2.9였음 — 설계서 절제표 5행 대 8행의 대비가 실측으로 나옴. (3) EC 이득이 작은 것은 오라클 상한(0.56)과 범위 밖 부호 편집 때문. (4) λ를 450개 격자에서 dev로 골라 낙관적 → test는 마지막에 한 번만. 후보: 더 큰 인과 LM(polyglot-ko-5.8b, 12 GB).
 
-### 16:05–16:40 · A-6 채널 베이즈화(희소 디리클레 VB-EM), 사후 집중 곡선, 채널 비교 [gsm, itcerdo]
+### 16:00–16:13 · A-6 채널 베이즈화(희소 디리클레 VB-EM), 사후 집중 곡선, 채널 비교 [gsm, itcerdo]
 
 - 작업: `hnc/channel_em.py` — `vb_em`(편집쌍 결합 분포 δ ~ Dir(α·1), 평균장 q(δ) = Dir(α + 기대 계수); E단계는 δ̃ = exp(ψ(a_k) − ψ(Σa))로 전·후진 계산; ELBO = Σ log Z̃ − KL(q‖p)), `digamma`(점근 급수, scipy 없음), `dirichlet_kl`, `conditional_posterior`(Dir의 부분 벡터 정규화 = Dir(a_{α,·})로 조건부 δ(β|α)의 사후 평균·표준편차를 닫힌 꼴로), `subsample`(창 계수 이항 표집), `em(max_len=)`. `scripts/vb_channel.py`(비율 0.1/0.25/0.5/1 → 곡선, 비율 1 → 디코더용 채널). 테스트 3개 추가(ψ·KL 값, ELBO 단조, 자료 10배 시 표준편차 감소) → 6 passed. 커밋 `6d383d5`, `0aa18cb`.
 
