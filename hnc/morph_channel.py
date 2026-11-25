@@ -298,7 +298,7 @@ class MorphChannel:
         sub = {k: sorted(v, key=lambda a: a[2])[:max_alt] for k, v in sub.items()}
         ins = {}
         for (m2, lt), n in n_ins.items():
-            if n >= min_count:
+            if n >= min_count and lt in n_tag:          # 문장 처음(BOS)은 분모가 없어 쓰지 않음
                 ins[f"{_key(m2)}|{lt}"] = -math.log(min(n / (n_tag[lt] + beta), 1.0))
         dele = defaultdict(list)
         for (m, lt), n in n_del_lt.items():
@@ -329,23 +329,27 @@ class MorphChannel:
             return self.ident[k]
         return self._tag_ident.get(m[1], 0.0)
 
-    def candidates(self, ms: Sequence[M], lt0: str = "BOS", max_cands: int = 12) -> List[Tuple[List[M], str, float]]:
+    def candidates(self, ms: Sequence[M], lt0: str = "BOS", max_cands: int = 12,
+                   classes: Tuple[str, ...] = ("J", "E")) -> List[Tuple[List[M], str, float]]:
         """어절 하나의 x 형태소열 ``ms``(부호 제외) → [(바뀐 형태소열, z, 비용 증분 Δ)] (편집 1개씩).
 
-        ``lt0``: 어절 앞(왼쪽 어절의 마지막 형태소) 품사.
+        ``lt0``: 어절 앞(왼쪽 어절의 마지막 형태소) 품사. ``classes``: 편집할 형태소 부류(기본 조사·어미 —
+        내용 형태소의 대치·삽입·삭제 후보는 Kor-Learner에서 거의 다 오탐이었음, 2026-11-25).
         """
         out = []
         for j, m2 in enumerate(ms):
             idc = self.ident_cost(m2)
-            for m, z, c in self.sub.get(_key(m2), ()):
-                out.append((list(ms[:j]) + [tuple(m)] + list(ms[j + 1:]), z, c - idc))
-            lt = ms[j - 1][1] if j > 0 else lt0
-            c = self.ins.get(f"{_key(m2)}|{lt}")
-            if c is not None and len(ms) > 1:
-                out.append((list(ms[:j]) + list(ms[j + 1:]), "INS", c - idc))
+            if mclass(m2) in classes:
+                for m, z, c in self.sub.get(_key(m2), ()):
+                    if mclass(m) in classes:
+                        out.append((list(ms[:j]) + [tuple(m)] + list(ms[j + 1:]), z, c - idc))
+                lt = ms[j - 1][1] if j > 0 else lt0
+                c = self.ins.get(f"{_key(m2)}|{lt}")
+                if c is not None and len(ms) > 1:
+                    out.append((list(ms[:j]) + list(ms[j + 1:]), "INS", c - idc))
         for j in range(len(ms)):
             for m, c in self.dele.get(ms[j][1], ()):
-                if j + 1 < len(ms) and tuple(ms[j + 1]) == tuple(m):
+                if mclass(m) not in classes or (j + 1 < len(ms) and tuple(ms[j + 1]) == tuple(m)):
                     continue
                 out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), "DEL", c))
         out.sort(key=lambda a: a[2])
