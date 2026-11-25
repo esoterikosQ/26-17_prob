@@ -604,3 +604,49 @@ python scripts/make_jamo_only_pairs.py; python scripts/extract_edits.py --source
 - 계층 분리 모형(학습자·자모 층위 자모 채널 + 형태소 채널)의 n-best 8 재채점(오라클 0.353): 기준 **0.260** → + PCFG 0.265 → **+ 인과 LM 0.306**(P .404 R .155; λ_LM 0.5, λ_pko 1.0) → + PCFG까지 0.306. 마스크 LM은 더하지 않음.
 - **Kor-Learner dev 누적: 0.092(A-1 자모 채널) → 0.204(학습자 자모 채널) → 0.227(+ 형태소 채널) → 0.260(계층 분리) → 0.306(+ 인과 LM 재채점)**. λ는 dev에서 고른 값.
 - 설명 표본(사람 검토용, 말뭉치 문장 포함 — git 제외): gsm `outputs/a3/explain_sample.md`.
+
+### 19:03–19:25 · A-3e 형태소 후보 포괄률 진단·확장 [gsm, itcerdo]
+
+- 작업: `scripts/cand_coverage.py` — 정답 M²의 한 어절 편집에 대해 교정 어절이 그 어절의 디코더 후보에 들어 있는지(유형별, 형태소 경로/자모 경로). `DecoderConfig`에 `morph_max_cands`·`morph_two_edits`(어절당 형태소 편집 2개)·`morph_combine`(자모 후보 위에 형태소 편집), `decode/rescore/explain --morph-*`.
+- 진단(Kor-Learner dev 앞 1,500문장, 한 어절 편집 2,965개): 계층 분리 모형의 조사 교정 포괄률 **18.9%**(형태소 경로 145/847) — 분리 전엔 자모 채널이 23%를 더 덮었음. 놓친 것을 보니 대부분 **흔한 조사의 누락 복원**(우리 → 우리는, 한국말 → 한국말을)과 흔한 대치(방을 → 방에). 원인: 후보를 조건부 확률 P(DEL|m, lt) 순으로 골라, 빈도가 작아 비율이 큰 형태(축약형 ᆫ/JX 등)가 자리(왼쪽 품사당 8개)를 차지. → **후보 선택은 사건 빈도순, 점수는 채널 확률**(사전확률은 LM 몫)로 바꾸고 대안 수 20. 테스트 1개 추가(101 passed). 그 밖에 Kiwi 오분석(저 → IC, 아이 → IC)과 축약 실현 차이(게 ↔ 것이)가 남은 원인.
+
+| 형태소 후보 설정 | 조사 포괄 | 어미 포괄 | 표기 포괄 | 전체 포괄 | 어절당 후보 |
+|---|---:|---:|---:|---:|---:|
+| 비율순, 12개 (이전) | 18.9% | 13.1% | 68.3% | 20.6% | 10.0 |
+| 빈도순, 12개 | 66.9% | 41.3% | 69.0% | 39.2% | 11.3 |
+| **빈도순, 30개** | **86.1%** | **61.4%** | 70.6% | **49.8%** | 14.6 |
+| + 어절당 편집 2개 | 86.1% | 63.4% | 71.0% | 50.3% | 15.1 |
+| + 자모 후보 3개 위 형태소 편집 | 86.5% | 62.7% | 71.9% | 51.8% | 21.1 |
+
+- 디코딩(Kor-Learner dev 전체, 계층 분리 자모 채널 + 형태소 채널 learner, 빈도순 30개): λ_LM 1.0 **P .405 R .230 F0.5 0.352**(조사 재현율 8.6 → **28.6%**, 어미 8.5 → **18.8%**, 표기 65.8%), λ 1.5 0.340, λ 2.0 0.326. 문장당 0.26 s. 자모 후보 위 형태소 편집(3개)은 0.352로 같고 느려(0.30 s) 쓰지 않음. → **신경 LM 없이 이전 최고(0.306, 인과 LM 재채점)를 넘음.**
+
+### 19:10–19:35 · A-3f z의 EM 재추정(E단계·M단계), A-3d를 EC·Native에도 [gsm, itcerdo]
+
+- 작업: `extract_morph_edits.py`가 표층 표기 판정으로 SPELL로 돌린 구간의 원래 형태소 편집(`edits_raw`)을 보존(EM에서 두 가설을 함께 보기 위함). `scripts/em_z.py`(E단계): 구간마다 자모 경로 비용 = Σ −log P(IDENT|m) − log P_J(x_구간|y_구간)(분리 자모 채널, WFST 비터비)과 형태소 경로 비용 = Σ 편집 비용(형태소 채널 표; 없으면 12 nats) − log P_J(x|x) → P(형태소 경로|x, y) = σ(차). M단계: `MorphChannel.fit`이 구간 사후확률 `p_morph`로 가중 계수, `make_jamo_only_pairs --em`(p_morph < 0.5인 구간만 자모 층위로 남김) → 자모 채널 재학습(`learner_lang8_JE`), 형태소 채널 `learner_em`.
+- E단계 결과: 사후확률은 대부분 0 또는 1 근처(규칙 z가 대체로 확신 있는 쪽). KAGAS 부류 일치 Kor-Learner **76.3 → 77.1%**, Lang8 59.2 → 60.2%. 뒤집힌 것: 규칙 ENDING → SPELL 1,008, PARTICLE → SPELL 763, LEXICAL → SPELL 580, DEL → SPELL 340(Learner; 자모 채널이 더 싸게 설명), SPELL → INS 68 등.
+- A-3d EC·Native: `extract_morph_edits --sets ec2`(EC 2벌식 train 전부 899,544쌍, 편집 구간 314,558: SPELL 171,298, ENDING 73,404, LEXICAL 32,396, VARIANT 13,113, DEL 11,734, INS 8,512, PARTICLE 4,101) → 자모 층위 쌍(되돌린 구간 EC 143,260 / Native 6,323) → 자모 채널 `ec2_native_J`, 형태소 채널 `native_ec2`. 주의: EC 형태소 대치 최다가 `었 → 엇`(12,401) — 사실상 ㅆ → ㅅ 타자 오타인데 Kiwi가 x를 엇/EP로 분석하고 규칙은 조사·어미끼리의 차이를 형태소 편집으로 두므로 ENDING이 됨. 이런 모호성이 EM(자모 경로가 ㅆ → ㅅ을 내용어 오타에서 배워 더 싸게 설명)이 풀 대상.
+
+### 19:35–20:05 · A-3 결과: 학습자 신경 LM 재채점, EM 효과, EC·Native 계층 분리 [itcerdo]
+
+```bash
+python scripts/rescore.py --set korean_learner --split dev --channel datasets/channel/learner_lang8_J --morph-channel datasets/morph_channel/learner --morph-max-cands 30 --base-lam-lm 1.0 --nbest 8 --tag learner_JJ_Ml30   # + nlm_score pko13·rbl + --from-nbest 격자
+python scripts/decode.py --set korean_learner … --channel datasets/channel/learner_lang8_JE --morph-channel datasets/morph_channel/learner_em --tag learner_JE_Mem
+python scripts/explain.py … --lam-lm 1.0 --tag {learner_JJ_Ml30 | learner_JE_Mem}
+python scripts/decode.py --set native … --channel datasets/channel/{ec2_native_J | ec2_native_em} [--morph-channel datasets/morph_channel/native_ec2 [--morph-max-cands 12]]
+```
+
+- **Kor-Learner 신경 LM 재채점**(빈도순 30개 모형 n-best 8, 오라클 0.494): 기준 0.352 → + PCFG 0.353 → **+ 인과 LM 0.408**(P .466 R .274; λ_LM 0.5, λ_pko 1.0) → 마스크 LM·PCFG를 더해도 그대로. → **Kor-Learner dev 누적: 0.092 → 0.204 → 0.227 → 0.260 → 0.352 → 0.408.**
+- **설명 z 정확도**(빈도순 30개 모형, λ 1.0): 참 양성 1,971구간(이전 1,230), 비교 가능 유형 **93.4%** — 조사 **99.9%**(703), 어미 88.7%(204, 이전 54.9%), 표기 87.6%(630).
+- **EM(A-3f) 효과 없음**: M단계 재학습 모형(자모 `learner_lang8_JE` + 형태소 `learner_em`) F0.5 0.351(규칙 z 모형 0.352), z 정확도 93.0%(93.4%). E단계 사후확률이 대부분 0·1 근처라 규칙 z와 거의 같은 할당 → 규칙 z를 기본으로 유지, EM은 도구로 남김(설계서의 "지도 초기화 → 비지도 확장"은 태그 없는 대규모 자료에서 다시 볼 것).
+- **EC·Native에서는 계층 분리 + 형태소 채널이 오히려 나쁨**(보간 LM, λ_LM 0.5):
+
+| Kor-Native dev 설정 | F0.5 전체 | 새 문장 | WS+SPELL |
+|---|---:|---:|---:|
+| 기존 EM 자모 채널(모든 편집) | **0.734** | **0.647** | 0.648 |
+| 분리 자모 채널만 | 0.686 | – | **0.706** |
+| 기존 EM 채널 + 형태소 채널 12개 | 0.726 | – | 0.629 |
+| 기존 EM 채널 + 형태소 채널 30개 | 0.710 | – | 0.612 |
+| 분리 자모 채널 + 형태소 채널 30개 | 0.696 | 0.622 | 0.633 |
+
+  - EC dev 5k: 분리 + 형태소 0.508(기존 BM 0.518).
+  - 해석: (1) 분리는 띄어쓰기·맞춤법을 개선(0.648 → 0.706)하지만, 모어 화자 자료의 나머지 편집(구어 어미 규범화 등)을 문맥 묶음 자모 편집으로 고치던 몫을 잃음. (2) 모어 화자 글에서는 형태소 후보(조사 추가 등)가 LM 선호로 오탐을 늘림(정밀도 0.85 → 0.80). (3) **집단별 결론: 학습자 = 계층 모형(자모 층위 채널 + 형태소 채널)이 압도적, 모어 화자 = 기존 자모 채널이 최선.** 설계서 §6.1의 "집단별 채널 혼합"이 실측으로 필요해짐. 형태소 채널 가중(λ_M)·집단 혼합은 후속.
