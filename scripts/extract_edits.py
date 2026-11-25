@@ -7,6 +7,7 @@
 - ``ec``    : EC train 전체
 - ``native``: Kor-Native train
 - ``learner``·``lang8``: Kor-Learner·Kor-Lang8 train (학습자 집단 채널, A-3)
+- ``learnerJ``·``lang8J``: 위 둘에서 형태소 층위 편집을 되돌린 자모 층위 쌍(A-3d, ``make_jamo_only_pairs.py``)
 - ``ec2dev``·``nativedev``: 위 둘의 dev (A-1c held-out 우도용; 계수표가 아니라 창만 쓴다)
 모든 범주(동일·부호·띄어쓰기·내용)를 처리한다 — 오류 없는 위치도 분모(부분열 빈도)에 들어가야
 오류율이 과대평가되지 않는다. 출력은 datasets/channel/<tag>/ (git 제외):
@@ -38,6 +39,8 @@ SOURCES = {
     "native": (Path("datasets/kor_gec/native_train.jsonl"), lambda r: True),
     "learner": (Path("datasets/kor_gec/korean_learner_train.jsonl"), lambda r: True),
     "lang8": (Path("datasets/kor_gec/lang8_train.jsonl"), lambda r: True),
+    "learnerJ": (Path("datasets/kor_gec/korean_learner_jamo_train.jsonl"), lambda r: True),
+    "lang8J": (Path("datasets/kor_gec/lang8_jamo_train.jsonl"), lambda r: True),
     "ec2dev": (Path("datasets/ec/dev.jsonl"), lambda r: r["keyboard"] == "2벌식(쿼티)"),
     "nativedev": (Path("datasets/kor_gec/native_dev.jsonl"), lambda r: True),
 }
