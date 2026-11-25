@@ -94,7 +94,7 @@ def test_morph_channel_fit_and_candidates():
     import math
     from hnc.morph_channel import MorphChannel
     ch = _toy_channel()
-    assert ch.sub["을/JKO"][0][:2] == (["를", "JKO"], "PARTICLE")
+    assert ch.sub["을/JKO"][0][:2] == [["를", "JKO"], "PARTICLE"]
     assert ch.sub["을/JKO"][0][2] == math.log(35 / 3)                    # −log(3 / (30 + 5))
     cands = {(tuple(map(tuple, ms)), z): d for ms, z, d in ch.candidates([("학교", "NNG"), ("을", "JKO")])}
     assert ((("학교", "NNG"), ("를", "JKO")), "PARTICLE") in cands          # 조사 대치

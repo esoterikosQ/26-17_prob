@@ -294,7 +294,7 @@ class MorphChannel:
             if n < min_count or m is None or m2 is None:
                 continue
             p = n / (uni.get(m, 0) + beta)
-            sub[_key(m2)].append((list(m), n_sub_z[(m, m2)].most_common(1)[0][0], -math.log(min(p, 1.0))))
+            sub[_key(m2)].append([list(m), n_sub_z[(m, m2)].most_common(1)[0][0], -math.log(min(p, 1.0))])
         sub = {k: sorted(v, key=lambda a: a[2])[:max_alt] for k, v in sub.items()}
         ins = {}
         for (m2, lt), n in n_ins.items():
@@ -306,7 +306,7 @@ class MorphChannel:
                 continue
             p_m = n_del[m] / (uni.get(m, 0) + beta)
             p = (n + beta * p_m) / (bi.get((lt, m[0], m[1]), 0) + beta)
-            dele[lt].append((list(m), -math.log(min(p, 1.0))))
+            dele[lt].append([list(m), -math.log(min(p, 1.0))])
         dele = {k: sorted(v, key=lambda a: a[1])[:max_alt] for k, v in dele.items()}
         return cls(dict(sub), ident, ins, dele)
 
