@@ -126,35 +126,46 @@ def core(seg: str) -> str:
 
 
 def analyze_region(y, x, g, ys, xs, fq, systematic):
-    """편집 구간 하나 → (편집 목록[문맥 포함], 구간 z, 구간 부류, 체계 쌍 후보[(m, m′)])."""
+    """편집 구간 하나 → (편집 목록[문맥 포함], 구간 z, 구간 부류, 체계 쌍 후보[(m, m′)], 원래 편집 목록).
+
+    원래 편집 목록: 표층 표기 판정(``surface_spell``)이 구간을 SPELL로 돌렸을 때 그 전의 형태소 편집
+    (EM에서 두 가설 — 자모 경로·형태소 경로 — 을 함께 보기 위함). 돌리지 않았으면 None.
+    """
     yidx = [k for k, q in enumerate(ys) if q[2] < g.y_end and q[3] > g.y_start and not is_punct(q[:2])]
     my = [ys[k][:2] for k in yidx]
     mx = [q[:2] for q in xs if q[2] < g.x_end and q[3] > g.x_start] if g.x_seg.strip() else []
     variant = variant_by_freq(fq, eojeol_core(y, g.y_start, g.y_end), eojeol_core(x, g.x_start, g.x_end), systematic)
-    edits = surface_spell(morph_edits(my, mx, variant), core(g.y_seg), core(g.x_seg))
+    raw = morph_edits(my, mx, variant)
+    edits = surface_spell(raw, core(g.y_seg), core(g.x_seg))
     cands = [(tuple(e["m"]), tuple(e["m2"])) for e in edits
              if e["z"] in ("LEXICAL", "VARIANT") and mclass(e["m"]) == mclass(e["m2"]) == "C"
              and variant.common(e["m"], e["m2"])]
+
     def left_tag(k):
         j = k - 1
         while j >= 0 and is_punct(ys[j][:2]):
             j -= 1
         return ys[j][1] if j >= 0 else "BOS"
-    p, last = 0, None
-    out = []
     first = yidx[0] if yidx else next((k for k, q in enumerate(ys) if q[2] >= g.y_start), len(ys))
-    for e in edits:
-        if e["m"] is not None:
-            k = yidx[p]
-            p += 1
-            last = k
-            c = (ys[k][1], batchim(y, ys[k][2]))
-            lt = left_tag(k)
-        else:
-            lt = ys[last][1] if last is not None else left_tag(first)
-            c = ("INS_AFTER", lt)
-        out.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c, "lt": lt})
-    return out, region_z(out), region_family(out), cands
+
+    def with_ctx(es):
+        p, last = 0, None
+        out = []
+        for e in es:
+            if e["m"] is not None:
+                k = yidx[p]
+                p += 1
+                last = k
+                c = (ys[k][1], batchim(y, ys[k][2]))
+                lt = left_tag(k)
+            else:
+                lt = ys[last][1] if last is not None else left_tag(first)
+                c = ("INS_AFTER", lt)
+            out.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c, "lt": lt})
+        return out
+    out = with_ctx(edits)
+    raw_out = with_ctx(raw) if edits != raw else None
+    return out, region_z(out), region_family(out), cands, raw_out
 
 
 def collect_systematic(args, ana, freq, min_count: int = 3) -> frozenset:
@@ -213,7 +224,7 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic:
                     if g.kind != "edit":
                         continue
                     n_regions += 1
-                    out_edits, rz, fam, _ = analyze_region(y, x, g, ys, xs, fq, systematic)
+                    out_edits, rz, fam, _, raw_edits = analyze_region(y, x, g, ys, xs, fq, systematic)
                     for e in out_edits:
                         ec_z[e["z"]] += 1
                         if e["z"] != "IDENT":
@@ -223,8 +234,11 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic:
                     mapped = sorted({KAGAS_TO_Z.get(t, t) for t in kg})
                     if len(mapped) == 1:
                         conf[mapped[0]][fam] += 1
-                    fo.write(json.dumps({"unit": r["unit_id"], "y_seg": g.y_seg, "x_seg": g.x_seg, "z": rz,
-                                         "family": fam, "edits": out_edits, "kagas": kg}, ensure_ascii=False) + "\n")
+                    rec = {"unit": r["unit_id"], "y_seg": g.y_seg, "x_seg": g.x_seg, "z": rz,
+                           "family": fam, "edits": out_edits, "kagas": kg}
+                    if raw_edits is not None:
+                        rec["edits_raw"] = raw_edits
+                    fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
     (out_dir / "ctx_counts.json").write_text(json.dumps([[t, b, n] for (t, b), n in ctx.most_common()],
                                                         ensure_ascii=False), encoding="utf-8")
     (out_dir / "morph_counts.json").write_text(json.dumps(
@@ -299,7 +313,7 @@ def inspect_check(path: Path, ana, freq, systematic) -> None:
         ys, xs = ana.spans(r["y"]), ana.spans(r["x"])
         regs = [g for g in align_pair(r["y"], r["x"], [Span(*q) for q in ys]) if g.kind == "edit"]
         for g, j in zip(regs, judged[unit]):
-            _, rz, _, _ = analyze_region(r["y"], r["x"], g, ys, xs, fq, systematic)
+            _, rz, _, _, _ = analyze_region(r["y"], r["x"], g, ys, xs, fq, systematic)
             lab = "bad" if j.startswith("bad") else "ok"
             rows[(lab, rz)] += 1
             if lab == "bad" or rz == "VARIANT":
