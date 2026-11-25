@@ -15,15 +15,10 @@ from transformers import AutoTokenizer, BartForConditionalGeneration
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hnc.candidates_c import surface, union_pool
 from scripts.c_kobart import seq_logprob
+from scripts.c_transfer_pool import candidates, rows
 
 ROOT = Path("outputs/c_gec2_dev_v1")
 ASSETS = Path("data/c_gec2_dev_v1/models")
-LEARNER = Path("outputs/rescore/learner_JJ_Ml30")
-
-
-def rows(path):
-    with path.open(encoding="utf-8") as f:
-        return list(map(json.loads, f))
 
 
 def verified_model(domain, recipe):
@@ -67,29 +62,6 @@ def padded(ids, pad):
 
 def inputs(ids):
     return {"input_ids": padded(ids, 3), "attention_mask": padded([[1] * len(a) for a in ids], 0)}
-
-
-def candidates(recs):
-    lookup = {}
-    for d in dict.fromkeys(r["component"] for r in recs):
-        if d == "korean_learner":
-            hs = rows(LEARNER / "nbest.jsonl")
-            with (LEARNER / "gold_all.m2").open() as f:
-                sources = [line[2:].strip() for line in f if line.startswith("S ")]
-            for h, x in zip(hs, sources, strict=True):
-                h["x"] = x
-        else:
-            hs = rows(ROOT / "beam" / f"{d}.jsonl")
-        lookup[d] = hs
-    result = []
-    for r in recs:
-        j = r["component_i"]
-        h = lookup[r["component"]][j]
-        if (h["i"] != j or surface(h["x"]) != surface(r["x"])
-                or ("unit_id" in h and r["unit_id"] != h["unit_id"])):
-            raise ValueError(f"HNC identity mismatch: {r['i']}")
-        result.append([a["text"] for a in h["hyps"]])
-    return result
 
 
 @torch.inference_mode()

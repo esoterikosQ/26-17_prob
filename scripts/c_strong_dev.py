@@ -99,7 +99,7 @@ def prepare(domain):
     save(out / "recipe.json", {"domain": domain, "n": len(records), "epoch": ep["epoch"], "val_gleu": ep["val_gleu"]})
 
 
-def output_choices(out, recs):
+def output_choices(out, recs, *, s1h8=False):
     causal = {c["text"]: c["lp"] for c in rows(out / "causal.jsonl")}
     for rec, pool in zip(recs, rows(out / "features.jsonl"), strict=True):
         if (rec["i"], rec["unit_id"], rec["x"]) != (pool["i"], pool["unit_id"], pool["x"]):
@@ -109,9 +109,14 @@ def output_choices(out, recs):
             raise ValueError("baseline not found or ambiguous")
         for h in hyps:
             h["prior"] = .5 * h["lm"] + causal[h["text"]]
-            if not all(math.isfinite(h[k]) for k in ("prior", "ch", "s2s")):
+            if not all(math.isfinite(h[k]) for k in (("prior", "ch") if s1h8 else ("prior", "ch", "s2s"))):
                 raise ValueError("non-finite transfer score")
         result = {"archived": rec["archived"]}
+        if s1h8:
+            eligible = [h for h in hyps if h["h"] is not None or h["s"] == 0]
+            result["s1h8_no_s2s"] = min(eligible, key=lambda h: (h["ch"] - h["prior"], h["text"]))["text"]
+            yield result
+            continue
         for name, src, w in (("s_fixed", "s", .5), ("union_no_s2s", "union", 0.), ("union_fixed", "union", .5)):
             result[name] = hyps[pick(hyps, src, w)]["text"]
         yield result
@@ -131,8 +136,15 @@ def evaluate(domain, stage):
     out = ROOT / domain
     recs = list(rows(out / "records.jsonl"))
     blocks = m2_blocks(gold_path(domain))
-    decisions = (output_choices(out, recs) if stage == "fixed" else
-                 old_choices(recs) if domain == "korean_learner" else ({"archived": r["archived"]} for r in recs))
+    if stage == "s1h8":
+        features = out if domain == "korean_learner" else out / "s1h8"
+        decisions = output_choices(features, recs, s1h8=True)
+    elif stage == "fixed":
+        decisions = output_choices(out, recs)
+    elif domain == "korean_learner":
+        decisions = old_choices(recs)
+    else:
+        decisions = ({"archived": r["archived"]} for r in recs)
     metrics, names = [], []
     for i, (decision, r, block) in enumerate(zip(decisions, recs, blocks, strict=True)):
         if not names:
@@ -166,7 +178,7 @@ def evaluate(domain, stage):
                 report["metrics"][part][name] = counts
             if part.startswith("check"):
                 for a, b in (("archived", "old_C"), ("old_kobart", "archived"), ("archived", "s_fixed"),
-                             ("s_fixed", "union_fixed"), ("archived", "union_fixed")):
+                             ("s_fixed", "union_fixed"), ("archived", "union_fixed"), ("archived", "s1h8_no_s2s")):
                     if a in names and b in names:
                         v = report["metrics"][part]
                         report["paired_check_delta"][f"{part}:{b}-{a}"] = {
@@ -179,7 +191,7 @@ def evaluate(domain, stage):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=("prepare", "baseline", "fixed"))
+    ap.add_argument("stage", choices=("prepare", "baseline", "fixed", "s1h8"))
     ap.add_argument("domain", choices=DOMAINS)
     a = ap.parse_args()
     prepare(a.domain) if a.stage == "prepare" else evaluate(a.domain, a.stage)

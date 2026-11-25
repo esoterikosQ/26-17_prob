@@ -22,5 +22,11 @@ def test_frozen_reranker_separates_source_and_scoring_effect(tmp_path):
     (tmp_path / "causal.jsonl").write_text("".join(json.dumps({"text": h["text"], "lp": -1}) + "\n" for h in hyps))
     assert list(output_choices(tmp_path, [rec])) == [
         {"archived": "a", "s_fixed": "b", "union_no_s2s": "c", "union_fixed": "c"}]
+    # Lower-rank neural-only 'b' must be ineligible, even when its channel cost is best.
+    hyps[1]["ch"] = -20
+    for h in hyps:
+        del h["s2s"]
+    (tmp_path / "features.jsonl").write_text(json.dumps({**rec, "hyps": hyps}) + "\n")
+    assert list(output_choices(tmp_path, [rec], s1h8=True)) == [{"archived": "a", "s1h8_no_s2s": "c"}]
     with pytest.raises(ValueError, match="baseline"):
         list(output_choices(tmp_path, [{**rec, "archived": "different"}]))
