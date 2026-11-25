@@ -717,3 +717,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - C-4: 공식 확인 부분 KoBART 1위 **3,483 변경 구간 전체** 중 관측 경로 없음 250(7.2%), 사후 질량이 가장 큰 유형이 미분류 890(25.6%). KoBART n-best의 모든 가설 편집(가설 간 중복 발생 포함) 36,482구간, 미분류 28.9%. C 최종 출력 2,610구간, 관측 경로 없음 47(1.8%), 미분류 248(9.5%). **정답과 같은 M² 편집 중 한 정렬 구간으로 정확히 대응하고 유형을 비교할 수 있는 경우만** KAGAS와의 일치율 KoBART 77.7%(916개), C 79.2%(1,248개). 이는 독립 사람 판정도, 전체 설명의 정확도도 아님.
 - 검증·실패: M² 그래프 병합 인자 순서를 잘못 넘긴 첫 손 예제에서 `TypeError` → 공식 구현 순서로 수정하고 회귀 테스트 추가. 최종 9개 설정 × 선택/확인/전체의 캐시 P/R/F0.5를 공식 CLI와 모두 대조. 구간 DP 대 기존 WFST 비용 204구간 최대 오차 0.000013 미만, KoBART teacher-forcing과 토큰별 전개 로그확률 오차 0.000001 미만. Pylance MCP 시간 초과; 원격 `compileall`·`pytest` 124 passed. 신경망 학습·최종 test 채점 없음.
 - 보관: `outputs/c_learner_v1/` 21개 파일을 T31의 동일 상대 경로에 옮겨 SHA-256 전수 확인 후 이번 run의 원격 출력과 smoke만 정리했다. 실제 검수용 `outputs/c_learner_v1/review_blind.md`만 gsm에 별도 복사(무작위 100개, 정답·모형 설명·대조 키 비공개). 다음: 사람 판정 후 설명력 대조, 최종 평가 설정 고정.
+
+### 21:54–21:57 · 검수 독립 C 대조 시작 [gsm/itcerdo]
+
+- 작업: `gec2`의 더 강한 KoBART에서 재채점과 HNC 후보 추가를 분리한다. 학습자 C 설정을 세 자료에 그대로 적용하는 전이 실험으로 고정했다(`plan.md`). 별도 경로 `data/c_gec2_dev_v1`, `outputs/c_gec2_dev_v1`만 사용한다.
+- 명령: 원격 `git status`, `nvidia-smi`, 개발셋·n-best 목록, T31 보관 색인과 BART 복원 안내를 확인했다. 보관본에서 run 메타데이터 및 공식 Union **val** 쌍·M²만 먼저 전송한다.
+- 결과: Learner HNC 8-best는 존재하나 Lang8 캐시는 없다. T31에는 `gec2` 과거 dev 생성물이 있고 파인튜닝 가중치는 별도 Drive 백업이다. 후기 KoBART는 레거시의 0 패딩이나 타깃 포맷을 재사용하면 안 된다. 사람 검수 파일·키와 최종 시험셋은 제외한다.
