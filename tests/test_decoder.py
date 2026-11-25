@@ -83,5 +83,5 @@ def test_explain_posterior_over_paths(gen):
     hyp = next(h for h in nb if h.text == "집에 갔다")
     ex = d.explain(x, hyp)
     by_x = {e["x"]: e for e in ex}
-    assert by_x["집"]["y"] == "집에" and by_x["집"]["posterior"] == {"DEL": 1.0}
+    assert by_x["집"]["y"] == "집에" and by_x["집"]["posterior"] == {"PARTICLE_DEL": 1.0}
     assert by_x["갓다"]["posterior"] == {"JAMO": 1.0}

@@ -98,7 +98,7 @@ def test_morph_channel_fit_and_candidates():
     assert ch.sub["을/JKO"][0][2] == math.log(35 / 3)                    # −log(3 / (30 + 5))
     cands = {(tuple(map(tuple, ms)), z): d for ms, z, d in ch.candidates([("학교", "NNG"), ("을", "JKO")])}
     assert ((("학교", "NNG"), ("를", "JKO")), "PARTICLE") in cands          # 조사 대치
-    assert ((("학교", "NNG"),), "INS") in cands                              # 더 쓴 조사 제거
-    assert ((("학교", "NNG"), ("에", "JKB"), ("을", "JKO")), "DEL") in cands  # 빠뜨린 조사 복원
+    assert ((("학교", "NNG"),), "PARTICLE_INS") in cands                     # 더 쓴 조사 제거
+    assert ((("학교", "NNG"), ("에", "JKB"), ("을", "JKO")), "PARTICLE_DEL") in cands  # 빠뜨린 조사 복원
     assert all(math.isfinite(d) for d in cands.values())
     assert MorphChannel.from_json(ch.to_json()).sub == ch.sub

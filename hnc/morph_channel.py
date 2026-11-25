@@ -220,6 +220,10 @@ KAGAS_TO_Z: Dict[str, str] = {
 # A-3b 형태소 채널 확률 (자동 z 지도 추정)과 A-3c 디코더용 역후보
 # ---------------------------------------------------------------------------
 SUB_Z = ("PARTICLE", "ENDING", "LEXICAL", "VARIANT")
+FAMILY = {"J": "PARTICLE", "E": "ENDING", "C": "LEXICAL", "S": "LEXICAL"}
+Z_KO = {"IDENT": "그대로", "JAMO": "자모(오타·표기·띄어쓰기)", "PARTICLE": "조사 대치", "ENDING": "어미 대치",
+        "PARTICLE_DEL": "조사 누락", "ENDING_DEL": "어미 누락", "PARTICLE_INS": "조사 과잉", "ENDING_INS": "어미 과잉",
+        "LEXICAL": "어휘 대치", "VARIANT": "통용 변이 규범화", "LEXICAL_DEL": "형태소 누락", "LEXICAL_INS": "형태소 과잉"}
 
 
 def _key(m) -> str:
@@ -235,6 +239,8 @@ class MorphChannel:
       P(DEL|m) = N_del(m) / (N(m) + β)
     - 삽입(쓴 사람이 m′를 더 씀): P(INS m′ | lt) = N_ins(m′, lt) / (N(lt) + β)
     - 동일: P(IDENT | m) = 1 − (대치 + 삭제)/N(m), 품사 수준 비율로 평활(β).
+    후보의 z 라벨: 대치는 추정 때의 z(PARTICLE·ENDING 등), 삽입·삭제는 부류를 붙여 PARTICLE_INS(조사 과잉)·
+    ENDING_DEL(어미 누락) 등.
     디코딩 비용 증분 Δ(x를 그대로 두는 가설 대비, 자연로그 음수):
     - 대치 후보(x의 m′ 자리에 m): −log P(m→m′) + log P(IDENT | m′)
     - 삽입 제거 후보(x의 m′를 뺌): −log P(INS m′ | lt) + log P(IDENT | m′)
@@ -347,11 +353,11 @@ class MorphChannel:
                 lt = ms[j - 1][1] if j > 0 else lt0
                 c = self.ins.get(f"{_key(m2)}|{lt}")
                 if c is not None and len(ms) > 1:
-                    out.append((list(ms[:j]) + list(ms[j + 1:]), "INS", c - idc))
+                    out.append((list(ms[:j]) + list(ms[j + 1:]), FAMILY[mclass(m2)] + "_INS", c - idc))
         for j in range(len(ms)):
             for m, c in self.dele.get(ms[j][1], ()):
                 if mclass(m) not in classes or (j + 1 < len(ms) and tuple(ms[j + 1]) == tuple(m)):
                     continue
-                out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), "DEL", c))
+                out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), FAMILY[mclass(m)] + "_DEL", c))
         out.sort(key=lambda a: a[2])
         return out[:max_cands]
