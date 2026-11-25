@@ -25,7 +25,7 @@ def main() -> None:
     ap.add_argument("--name", default="learner")
     ap.add_argument("--beta", type=float, default=5.0)
     ap.add_argument("--min-count", type=int, default=2)
-    ap.add_argument("--max-alt", type=int, default=8)
+    ap.add_argument("--max-alt", type=int, default=20)
     args = ap.parse_args()
     regions, uni, bi = [], Counter(), Counter()
     for s in args.sets.split(","):
@@ -41,15 +41,15 @@ def main() -> None:
     out = Path("datasets/morph_channel") / args.name
     out.mkdir(parents=True, exist_ok=True)
     (out / "params.json").write_text(ch.to_json(), encoding="utf-8")
-    top_sub = sorted(((k, m, z, c) for k, v in ch.sub.items() for m, z, c in v), key=lambda a: a[3])[:15]
-    top_del = sorted(((lt, m, c) for lt, v in ch.dele.items() for m, c in v), key=lambda a: a[2])[:12]
-    top_ins = sorted(ch.ins.items(), key=lambda a: a[1])[:10]
+    top_sub = sorted(((k, m, z, n) for k, v in ch.sub.items() for m, z, _, n in v), key=lambda a: -a[3])[:15]
+    top_del = sorted(((lt, m, n) for lt, v in ch.dele.items() for m, _, n in v), key=lambda a: -a[2])[:12]
+    top_ins = sorted(ch.ins.items(), key=lambda a: -a[1][1])[:10]
     print(json.dumps({"name": args.name, "sets": args.sets, "regions": len(regions), "morph_types": len(uni),
                       "sub_keys": len(ch.sub), "sub_pairs": sum(len(v) for v in ch.sub.values()),
                       "ins": len(ch.ins), "del_contexts": len(ch.dele),
-                      "top_sub(x→y)": [[k, "/".join(m), z, round(c, 2)] for k, m, z, c in top_sub],
-                      "top_del(lt+y)": [[lt, "/".join(m), round(c, 2)] for lt, m, c in top_del],
-                      "top_ins": [[k, round(c, 2)] for k, c in top_ins]}, ensure_ascii=False, indent=1))
+                      "top_sub(x→y, 빈도)": [[k, "/".join(m), z, n] for k, m, z, n in top_sub],
+                      "top_del(lt+y, 빈도)": [[lt, "/".join(m), n] for lt, m, n in top_del],
+                      "top_ins(빈도)": [[k, cn[1]] for k, cn in top_ins]}, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

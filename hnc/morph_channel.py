@@ -245,14 +245,16 @@ class MorphChannel:
     - 대치 후보(x의 m′ 자리에 m): −log P(m→m′) + log P(IDENT | m′)
     - 삽입 제거 후보(x의 m′를 뺌): −log P(INS m′ | lt) + log P(IDENT | m′)
     - 삭제 복원 후보(lt 뒤에 m을 넣음): −log P(DEL | m, lt)
-    빈도 ``min_count`` 미만 사건은 후보로 쓰지 않는다.
+    빈도 ``min_count`` 미만 사건은 후보로 쓰지 않는다. **후보를 고르는 순서는 사건 빈도**(그 오류가 실제로
+    몇 번 났나)이고 점수는 채널 확률이다 — 조건부 확률 순으로 고르면 드문 형태소(빈도가 작아 비율이 큰
+    축약형 등)가 자리를 차지해 흔한 조사(는·을·에)의 누락 복원이 빠졌다(2026-11-25 후보 포괄률 진단).
     """
 
     def __init__(self, sub, ident, ins, dele):
-        self.sub = sub        # m′ 키 → [(m, z, 비용 −log P(m→m′))]
+        self.sub = sub        # m′ 키 → [(m, z, 비용 −log P(m→m′), 사건 빈도)] (빈도 내림차순)
         self.ident = ident    # 형태소 키 → −log P(IDENT|m)
-        self.ins = ins        # (m′ 키, lt) → −log P(INS m′|lt)
-        self.dele = dele      # lt → [(m, 비용 −log P(DEL|m,lt))]
+        self.ins = ins        # "m′ 키|lt" → (비용 −log P(INS m′|lt), 사건 빈도)
+        self.dele = dele      # lt → [(m, 비용 −log P(DEL|m,lt), 사건 빈도)] (빈도 내림차순)
         self._tag_ident = {}
         for k, c in ident.items():
             t = k.rsplit("/", 1)[1]
@@ -262,7 +264,7 @@ class MorphChannel:
     # --- 추정 -----------------------------------------------------------------
     @classmethod
     def fit(cls, regions: Sequence[dict], uni: Dict[Tuple[str, str], int], bi: Dict[Tuple[str, str, str], int],
-            beta: float = 5.0, min_count: int = 2, max_alt: int = 8) -> "MorphChannel":
+            beta: float = 5.0, min_count: int = 2, max_alt: int = 20) -> "MorphChannel":
         import math
         from collections import Counter, defaultdict
         n_sub, n_sub_z, n_del, n_del_lt, n_ins = Counter(), defaultdict(Counter), Counter(), Counter(), Counter()
@@ -300,12 +302,12 @@ class MorphChannel:
             if n < min_count or m is None or m2 is None:
                 continue
             p = n / (uni.get(m, 0) + beta)
-            sub[_key(m2)].append([list(m), n_sub_z[(m, m2)].most_common(1)[0][0], -math.log(min(p, 1.0))])
-        sub = {k: sorted(v, key=lambda a: a[2])[:max_alt] for k, v in sub.items()}
+            sub[_key(m2)].append([list(m), n_sub_z[(m, m2)].most_common(1)[0][0], -math.log(min(p, 1.0)), n])
+        sub = {k: sorted(v, key=lambda a: -a[3])[:max_alt] for k, v in sub.items()}
         ins = {}
         for (m2, lt), n in n_ins.items():
             if n >= min_count and lt in n_tag:          # 문장 처음(BOS)은 분모가 없어 쓰지 않음
-                ins[f"{_key(m2)}|{lt}"] = -math.log(min(n / (n_tag[lt] + beta), 1.0))
+                ins[f"{_key(m2)}|{lt}"] = [-math.log(min(n / (n_tag[lt] + beta), 1.0)), n]
         dele = defaultdict(list)
         for (m, lt), n in n_del_lt.items():
             # 분모 N(lt, m)은 조사·어미만 세므로(추출 단계) 삭제 복원도 조사·어미만 추정한다.
@@ -313,8 +315,8 @@ class MorphChannel:
                 continue
             p_m = n_del[m] / (uni.get(m, 0) + beta)
             p = (n + beta * p_m) / (bi.get((lt, m[0], m[1]), 0) + beta)
-            dele[lt].append([list(m), -math.log(min(p, 1.0))])
-        dele = {k: sorted(v, key=lambda a: a[1])[:max_alt] for k, v in dele.items()}
+            dele[lt].append([list(m), -math.log(min(p, 1.0)), n])
+        dele = {k: sorted(v, key=lambda a: -a[2])[:max_alt] for k, v in dele.items()}
         return cls(dict(sub), ident, ins, dele)
 
     # --- 직렬화 ---------------------------------------------------------------
@@ -343,21 +345,21 @@ class MorphChannel:
         ``lt0``: 어절 앞(왼쪽 어절의 마지막 형태소) 품사. ``classes``: 편집할 형태소 부류(기본 조사·어미 —
         내용 형태소의 대치·삽입·삭제 후보는 Kor-Learner에서 거의 다 오탐이었음, 2026-11-25).
         """
-        out = []
+        out = []          # (형태소열, z, 비용 증분, 사건 빈도)
         for j, m2 in enumerate(ms):
             idc = self.ident_cost(m2)
             if mclass(m2) in classes:
-                for m, z, c in self.sub.get(_key(m2), ()):
+                for m, z, c, n in self.sub.get(_key(m2), ()):
                     if mclass(m) in classes:
-                        out.append((list(ms[:j]) + [tuple(m)] + list(ms[j + 1:]), z, c - idc))
+                        out.append((list(ms[:j]) + [tuple(m)] + list(ms[j + 1:]), z, c - idc, n))
                 lt = ms[j - 1][1] if j > 0 else lt0
-                c = self.ins.get(f"{_key(m2)}|{lt}")
-                if c is not None and len(ms) > 1:
-                    out.append((list(ms[:j]) + list(ms[j + 1:]), FAMILY[mclass(m2)] + "_INS", c - idc))
+                cn = self.ins.get(f"{_key(m2)}|{lt}")
+                if cn is not None and len(ms) > 1:
+                    out.append((list(ms[:j]) + list(ms[j + 1:]), FAMILY[mclass(m2)] + "_INS", cn[0] - idc, cn[1]))
         for j in range(len(ms)):
-            for m, c in self.dele.get(ms[j][1], ()):
+            for m, c, n in self.dele.get(ms[j][1], ()):
                 if mclass(m) not in classes or (j + 1 < len(ms) and tuple(ms[j + 1]) == tuple(m)):
                     continue
-                out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), FAMILY[mclass(m)] + "_DEL", c))
-        out.sort(key=lambda a: a[2])
-        return out[:max_cands]
+                out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), FAMILY[mclass(m)] + "_DEL", c, n))
+        out.sort(key=lambda a: -a[3])
+        return [(a, z, c) for a, z, c, _ in out[:max_cands]]

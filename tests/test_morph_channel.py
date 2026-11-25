@@ -96,9 +96,22 @@ def test_morph_channel_fit_and_candidates():
     ch = _toy_channel()
     assert ch.sub["을/JKO"][0][:2] == [["를", "JKO"], "PARTICLE"]
     assert ch.sub["을/JKO"][0][2] == math.log(35 / 3)                    # −log(3 / (30 + 5))
+    assert ch.sub["을/JKO"][0][3] == 3                                    # 사건 빈도(후보 선택 순서)
     cands = {(tuple(map(tuple, ms)), z): d for ms, z, d in ch.candidates([("학교", "NNG"), ("을", "JKO")])}
     assert ((("학교", "NNG"), ("를", "JKO")), "PARTICLE") in cands          # 조사 대치
     assert ((("학교", "NNG"),), "PARTICLE_INS") in cands                     # 더 쓴 조사 제거
     assert ((("학교", "NNG"), ("에", "JKB"), ("을", "JKO")), "PARTICLE_DEL") in cands  # 빠뜨린 조사 복원
     assert all(math.isfinite(d) for d in cands.values())
     assert MorphChannel.from_json(ch.to_json()).sub == ch.sub
+
+
+def test_candidates_ranked_by_event_count_not_rate():
+    from hnc.morph_channel import MorphChannel
+    # 드문 형태소(빈도 2, 비율 높음)보다 흔한 조사(빈도 40, 비율 낮음)의 누락 복원을 먼저 고른다
+    regions = ([{"edits": [{"m": ["는", "JX"], "m2": None, "z": "DEL", "lt": "NP"}]}] * 40
+               + [{"edits": [{"m": ["ᆫ", "JX"], "m2": None, "z": "DEL", "lt": "NP"}]}] * 2)
+    uni = {("는", "JX"): 4000, ("ᆫ", "JX"): 3, ("우리", "NP"): 500}
+    bi = {("NP", "는", "JX"): 2000, ("NP", "ᆫ", "JX"): 3}
+    ch = MorphChannel.fit(regions, uni, bi)
+    top = ch.candidates([("우리", "NP")], max_cands=1)
+    assert top[0][0] == [("우리", "NP"), ("는", "JX")] and top[0][1] == "PARTICLE_DEL"
