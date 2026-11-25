@@ -570,3 +570,37 @@ python scripts/decode.py … --channel datasets/channel/{ec2_native, ec2_native_
   - 오류·수정 2건: (1) 처음엔 내용 형태소 후보까지 냈더니 Kor-Learner 300문장에서 복수 들 추가(사람 → 사람들)·내용어 삭제(지금는 → 는)·어휘 대치(지 → 후) 오탐이 대부분 → **후보를 조사·어미로 한정**(F0.5 0.110 → 0.225). (2) 삭제 복원 확률의 분모(왼쪽 품사 이중 빈도)를 조사·어미만 세면서 다른 품사(하/XSV, 것/NNB)는 분모가 0이라 확률 1(비용 0)이 되어 후보 자리를 차지 → 조사·어미만 추정하도록 수정. 문장 처음(BOS) 삽입도 분모가 없어 제외.
   - 학습자 집단 자모 채널: A-1a 추출 출처에 learner·lang8 추가 → `datasets/channel/learner_lang8`(쌍 96,590, 편집 25,796). EC·Native 채널은 학습자 글의 띄어쓰기를 과교정(유창하게 → 유창 하게, 두 시에 → 두시에)하는데 Kor-Learner 정답은 띄어쓰기를 거의 고치지 않음(train WS 109개).
 - 300문장 시험(λ_LM 1.0): EC·Native 자모 채널 0.101 → 학습자 자모 채널 0.211 → **+ 형태소 채널(조사·어미) 0.274**.
+
+### 17:40–18:45 · A-3 Kor-Learner dev 전체 평가, 설명 z 정확도, A-3d 계층 분리 [gsm, itcerdo]
+
+```bash
+C="--set korean_learner --split dev --lm <v0,v1> --lm-weights 0.8,0.2 --type-eval PARTICLE,ENDING,SPELL,NOUN,VERB,CONJUGATION"
+python scripts/decode.py $C --channel datasets/channel/{ec2_native_em | learner_lang8 | learner_lang8_J} [--morph-channel datasets/morph_channel/{learner|all}]
+python scripts/explain.py --set korean_learner --split dev --channel … --morph-channel datasets/morph_channel/learner --lam-lm 1.5
+python scripts/make_jamo_only_pairs.py; python scripts/extract_edits.py --sources learnerJ,lang8J --tag learner_lang8_J; python scripts/fit_channel.py --tag learner_lang8_J
+```
+
+- 결과 — Kor-Learner dev 4,264문장(정답 중복 0.7%라 "새 문장" 구분 불필요), F0.5와 KAGAS 유형별 재현율(λ_LM별 최고):
+
+| 자모 채널 | 형태소 채널 | λ_LM | P / R / **F0.5** | R 조사 | R 어미 | R 표기(SPELL) |
+|---|---|---:|---|---:|---:|---:|
+| EC2+Native EM (A-1) | — | 1.5 | .158 / .034 / 0.092 | 0.7% | 3.0% | 15.9% |
+| 학습자(Learner+Lang8) | — | 1.5 | .296 / .091 / 0.204 | 11.4% | 8.7% | 25.0% |
+| 학습자 | learner | 1.5 | .292 / .120 / 0.227 | **18.1%** | **11.1%** | 25.4% |
+| 학습자 | all(4자료) | 1.5 | .304 / .114 / 0.228 | 16.4% | 10.9% | 25.2% |
+| **학습자·자모 층위만(A-3d)** | learner | 1.5 | .324 / .145 / **0.260** | 8.6% | 8.5% | **65.1%** |
+
+- 결과 — 설명 P(z|x,ŷ)의 z 정확도(시스템 교정이 정답 편집과 같은 참 양성에서 argmax z 부류 대 KAGAS 유형; λ_LM 1.5):
+
+| 자모 채널 | 참 양성 구간 | **비교 가능 유형 정확도** | 조사 | 어미 | 표기 |
+|---|---:|---:|---:|---:|---:|
+| 학습자(모든 편집으로 학습) | 1,015 | 60.5% | 46.7% (237/445가 JAMO로 설명) | 42.5% | 94.7% |
+| **학습자·자모 층위만(A-3d)** | 1,230 | **93.4%** | **97.1%** | 54.9% | 98.0% |
+
+  - NOUN·VERB 등 어휘 유형(참 양성 225개)은 이 모형이 어휘 후보를 내지 않아 모두 JAMO로 설명됨(표기가 비슷한 어휘 교정).
+- **A-3d 계층 분리**: 자모 채널을 모든 편집으로 학습하면 조사·어미 오류(는 → ∅, 를 → 을)도 자모 편집으로 흡수해 설명이 자모 경로로 쏠림 → `make_jamo_only_pairs.py`로 A-3a z가 SPELL인 편집 구간과 띄어쓰기·부호 구간만 x 쪽으로 남긴 x′(형태소 층위 편집 구간은 y로 되돌림; Kor-Learner 34,309구간 되돌림, 불일치 0)를 만들어 자모 채널을 다시 학습. 설계서 캐스케이드(P_J는 m′ = m의 자모 잡음만)를 데이터 수준에서 맞춘 것.
+  - 해석: (1) **설명 정확도 60.5 → 93.4%** — 층위 분리가 z 식별의 조건. (2) F0.5도 0.227 → 0.260, 표기 재현율 25 → 65%(자모 채널이 형태소 오류에 확률을 나눠 주지 않음). (3) 대신 조사 재현율 18.1 → 8.6%: 자모 채널이 대신 고치던 조사 오류를 형태소 채널(관측 쌍 ≥ 2, 어절당 편집 1개, 후보 12개, 어휘 필터)이 다 덮지 못함 → 형태소 채널 범위 확장이 다음 과제. (4) 사후분포가 대부분 1.00 — 같은 표층을 두 경로가 함께 만드는 경우가 드묾(경로가 겹칠 때만 모호성이 생김).
+- 학습자 신경 LM 재채점(학습자 자모 채널 + 형태소 채널 n-best 8, 오라클 0.360): 기준 0.227 → + PCFG 0.229 → **+ 인과 LM(polyglot-ko-1.3b) 0.280**(P .384) → 마스크 LM·PCFG는 더해도 그대로. 오라클이 낮아(0.36) 후보 생성이 상한.
+- 계층 분리 모형(학습자·자모 층위 자모 채널 + 형태소 채널)의 n-best 8 재채점(오라클 0.353): 기준 **0.260** → + PCFG 0.265 → **+ 인과 LM 0.306**(P .404 R .155; λ_LM 0.5, λ_pko 1.0) → + PCFG까지 0.306. 마스크 LM은 더하지 않음.
+- **Kor-Learner dev 누적: 0.092(A-1 자모 채널) → 0.204(학습자 자모 채널) → 0.227(+ 형태소 채널) → 0.260(계층 분리) → 0.306(+ 인과 LM 재채점)**. λ는 dev에서 고른 값.
+- 설명 표본(사람 검토용, 말뭉치 문장 포함 — git 제외): gsm `outputs/a3/explain_sample.md`.
