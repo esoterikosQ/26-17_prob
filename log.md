@@ -723,3 +723,6 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: `gec2`의 더 강한 KoBART에서 재채점과 HNC 후보 추가를 분리한다. 학습자 C 설정을 세 자료에 그대로 적용하는 전이 실험으로 고정했다(`plan.md`). 별도 경로 `data/c_gec2_dev_v1`, `outputs/c_gec2_dev_v1`만 사용한다.
 - 명령: 원격 `git status`, `nvidia-smi`, 개발셋·n-best 목록, T31 보관 색인과 BART 복원 안내를 확인했다. 보관본에서 run 메타데이터 및 공식 Union **val** 쌍·M²만 먼저 전송한다.
 - 결과: Learner HNC 8-best는 존재하나 Lang8 캐시는 없다. T31에는 `gec2` 과거 dev 생성물이 있고 파인튜닝 가중치는 별도 Drive 백업이다. 후기 KoBART는 레거시의 0 패딩이나 타깃 포맷을 재사용하면 안 된다. 사람 검수 파일·키와 최종 시험셋은 제외한다.
+
+- 원래 최고 dev epoch는 Learner 9 / Lang8 3 / Union 8. 해당 epoch의 dev 원문·참조 4,264 / 16,434 / 23,332개가 기존 데이터와 전수 일치했다. 첫 Union 행 수 검사에서 나눠 읽기가 실패했다. 공식 쌍 파일 선두에 있는 빈 구분행 한 줄을 제외하면 Lang8→Learner→Native 순서로 원문·참조·주석이 모두 일치한다.
+- 별도 백업 첫 복원 시 Drive가 프로젝트의 분당 한도(`rateLimitExceeded`)를 반환했다. 분당 창을 기다려 동일 계정에서 단일 스트림으로 한 번만 재시도한다. 독립적으로 보관한 기존 C의 선택·M² 통계 두 파일의 해시를 확인했다. 추가 대조는 **기존 C 대 후기 KoBART 보관 1위**의 동일 Learner 확인 문장 대응 차이이며, 새 C의 n-best 실험과 별도로 보고한다.
