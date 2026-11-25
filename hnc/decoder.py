@@ -23,6 +23,10 @@
 적용한 형태소열을 Kiwi ``join``으로 실현해 어절 후보에 더한다(이형태·축약·불규칙 활용은 join이 처리).
 비용 = 원문 어절의 자모 동일 비용 + Δ_M. 같은 표층이 자모 경로와 형태소 경로에서 모두 나오면
 두 경로의 확률을 더한다(P(x|y) = Σ_{m′} P_M(m′|m) P_J(x|m′)의 두 항).
+
+설명(설계서 §1.5, ``explain``): 고른 출력의 바뀐 어절마다 그 후보를 만든 경로들(JAMO = 자모 채널:
+오타·표기·띄어쓰기, PARTICLE·ENDING = 조사·어미 대치, INS = 더 쓴 형태소, DEL = 빠뜨린 형태소)의
+채널 확률을 정규화한 사후분포 P(z | x, ŷ)를 낸다(사전확률 항은 같은 ŷ에서 공통이라 약분됨).
 """
 
 from __future__ import annotations
@@ -171,6 +175,7 @@ class _Hyp:
     lm: float = 0.0       # log P_LM (자연로그)
     ch: float = 0.0       # 채널 비용(구간 사이 공백 포함)
     nm: int = 0           # 형태소 수
+    segs: Tuple[Tuple[int, int], ...] = ()   # 출력 조각마다 x 구간 (시작 어절, 어절 수)
 
 
 @dataclass
@@ -180,6 +185,8 @@ class NBest:
     lm: float
     ch: float
     n_morph: int
+    segs: Tuple[Tuple[int, int], ...] = ()
+    outs: Tuple[str, ...] = ()
 
 
 class Decoder:
@@ -192,6 +199,7 @@ class Decoder:
         self.cfg = cfg or gen.cfg
         self.sp_cost = -math.log(gen.channel.params.identity[SP])
         self._morph_cache: Dict[str, list] = {}
+        self._paths: Dict[Tuple[int, str], Dict[str, float]] = {}
 
     def _tokens(self, text: str) -> List[str]:
         m = self._morph_cache.get(text)
@@ -216,13 +224,13 @@ class Decoder:
                 out[k].append((t.form, t.tag, t.start - offs[k][0]))
         return out
 
-    def _morph_candidates(self, core: str, lead: str, ms, lt0: str) -> List[Tuple[str, float]]:
+    def _morph_candidates(self, core: str, lead: str, ms, lt0: str) -> List[Tuple[str, float, str]]:
         from .morph_channel import is_punct
         inside = [(f, t) for f, t, a in ms if len(lead) <= a < len(lead) + len(core) and not is_punct((f, t))]
         if not inside:
             return []
         out = []
-        for ms2, _z, d in self.mc.candidates(inside, lt0):
+        for ms2, z, d in self.mc.candidates(inside, lt0):
             if not ms2:
                 continue
             try:
@@ -230,22 +238,29 @@ class Decoder:
             except Exception:
                 continue
             if y and y != core and " " not in y and has_hangul(y) and self.gen._in_vocab(y):
-                out.append((y, d))
+                out.append((y, d, z))
         return out
+
+    def _add_path(self, i: int, y: str, z: str, c: float) -> None:
+        d = self._paths.setdefault((i, y), {})
+        d[z] = _neglog_add(d[z], c) if z in d else c
 
     def _span_candidates(self, toks: Sequence[str], i: int, L: int, xm=None) -> List[Tuple[str, float]]:
         if L == 1:
             lead, core, trail = split_punct(toks[i])
             if core and has_hangul(core):
                 cands = self.gen.generate(core)
+                for y, c in cands:
+                    self._add_path(i, lead + y + trail, "IDENT" if y == core else "JAMO", c)
                 if xm is not None:
                     base = cands[-1][1] if cands and cands[-1][0] == core else 0.0
                     prev = [m for m in xm[i - 1] if not _punct_tag(m[1])] if i > 0 else []
                     lt0 = prev[-1][1] if prev else "BOS"
                     merged: Dict[str, float] = dict(cands)
-                    for y, d in self._morph_candidates(core, lead, xm[i], lt0):
+                    for y, d, z in self._morph_candidates(core, lead, xm[i], lt0):
                         c = base + d
                         merged[y] = _neglog_add(merged[y], c) if y in merged else c
+                        self._add_path(i, lead + y + trail, z, c)
                     cands = list(merged.items())
                 return [(lead + y + trail, c) for y, c in cands]
             return [(toks[i], self.gen.channel.neglogprob(toks[i], toks[i]) if has_hangul(toks[i]) else 0.0)]
@@ -260,6 +275,7 @@ class Decoder:
         toks = x.split()
         spans = (1, 2) if self.cfg.merge_spans else (1,)
         xm = self._x_morphs(x, toks) if self.mc is not None and toks else None
+        self._paths = {}
         prep = {}
         for i in range(len(toks)):
             for L in spans:
@@ -294,12 +310,34 @@ class Decoder:
                         sp = self.sp_cost if i > 0 else 0.0
                         s = h.score + cfg.lam_lm * lm - cfg.lam_ch * (ch + sp) + cfg.lam_len * len(toks_y)
                         beams[i + L].append(_Hyp(s, st, h.out + (y,), h.lm + lm, h.ch + ch + sp,
-                                                 h.nm + len(toks_y)))
+                                                 h.nm + len(toks_y), h.segs + ((i, L),)))
         finals = {}
         for h in beams[n]:
             e = self.lm.end(h.state)
             text = " ".join(h.out)
-            cand = NBest(text, h.score + cfg.lam_lm * e, h.lm + e, h.ch, h.nm)
+            cand = NBest(text, h.score + cfg.lam_lm * e, h.lm + e, h.ch, h.nm, h.segs, h.out)
             if text not in finals or cand.score > finals[text].score:
                 finals[text] = cand
         return sorted(finals.values(), key=lambda c: -c.score)[:n_best]
+
+    def explain(self, x: str, hyp: "NBest") -> List[dict]:
+        """``prepare(x)`` 직후 고른 가설의 바뀐 구간마다 {i, L, x, y, posterior{z: p}}.
+
+        두 어절을 합친 구간(L = 2)은 자모 채널(띄어쓰기)만 만들 수 있으므로 JAMO = 1.
+        """
+        toks = x.split()
+        out = []
+        for (i, L), y in zip(hyp.segs, hyp.outs):
+            xs = " ".join(toks[i:i + L])
+            if y == xs:
+                continue
+            if L == 2:
+                post = {"JAMO": 1.0}
+            else:
+                paths = self._paths.get((i, y), {"JAMO": 0.0})
+                m = min(paths.values())
+                w = {z: math.exp(m - c) for z, c in paths.items()}
+                tot = sum(w.values())
+                post = {z: v / tot for z, v in sorted(w.items(), key=lambda kv: -kv[1])}
+            out.append({"i": i, "L": L, "x": xs, "y": y, "posterior": post})
+        return out

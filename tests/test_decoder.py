@@ -70,3 +70,18 @@ def test_decoder_adds_morph_channel_candidates(gen):
     assert cands["집에"] > cands["집"]                                        # 채널은 원문을 선호
     plain = {y for y, _, _ in Decoder(gen, MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer()).prepare("집 갔다")[(0, 1)]}
     assert "집에" not in plain
+
+
+def test_explain_posterior_over_paths(gen):
+    from hnc.morph_channel import MorphChannel
+    regions = [{"edits": [{"m": ["에", "JKB"], "m2": None, "z": "DEL", "lt": "NNG"}]}] * 5
+    mc = MorphChannel.fit(regions, {("에", "JKB"): 50, ("집", "NNG"): 100}, {("NNG", "에", "JKB"): 20})
+    d = Decoder(gen, MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer(), morph_channel=mc)
+    x = "집 갓다"
+    prep = d.prepare(x)
+    nb = d.search_nbest(x, prep, n_best=8)
+    hyp = next(h for h in nb if h.text == "집에 갔다")
+    ex = d.explain(x, hyp)
+    by_x = {e["x"]: e for e in ex}
+    assert by_x["집"]["y"] == "집에" and by_x["집"]["posterior"] == {"DEL": 1.0}
+    assert by_x["갓다"]["posterior"] == {"JAMO": 1.0}
