@@ -32,7 +32,7 @@ def load_texts(path: Path):
 def causal_scores(texts, model_name, batch_size, device, dtype):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype).to(device).eval()
+    model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype).to(device).eval()
     bos = tok.bos_token_id if tok.bos_token_id is not None else tok.eos_token_id
     eos = tok.eos_token_id
     pad = tok.pad_token_id if tok.pad_token_id is not None else eos
@@ -60,7 +60,7 @@ def causal_scores(texts, model_name, batch_size, device, dtype):
 def masked_scores(texts, model_name, batch_size, device, dtype):
     from transformers import AutoModelForMaskedLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForMaskedLM.from_pretrained(model_name, torch_dtype=dtype).to(device).eval()
+    model = AutoModelForMaskedLM.from_pretrained(model_name, dtype=dtype).to(device).eval()
     enc = [tok(t)["input_ids"] for t in texts]            # [CLS]/<s> … [SEP]/</s> 포함
     special = set(tok.all_special_ids)
     jobs = [(k, p) for k, ids in enumerate(enc) for p, t in enumerate(ids) if t not in special]
