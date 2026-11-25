@@ -78,3 +78,27 @@ def test_region_family_groups_particle_omission():
     assert region_z(e) == "DEL" and region_family(e) == "PARTICLE"
     e2 = morph_edits([("가", "VV"), ("았", "EP")], [("가", "VV")])
     assert region_family(e2) == "ENDING"
+
+
+def _toy_channel():
+    from hnc.morph_channel import MorphChannel
+    regions = ([{"edits": [{"m": ["를", "JKO"], "m2": ["을", "JKO"], "z": "PARTICLE", "lt": "NNG"}]}] * 3
+               + [{"edits": [{"m": ["에", "JKB"], "m2": None, "z": "DEL", "lt": "NNG"}]}] * 4
+               + [{"edits": [{"m": None, "m2": ["을", "JKO"], "z": "INS", "lt": "NNG"}]}] * 2)
+    uni = {("를", "JKO"): 30, ("을", "JKO"): 50, ("에", "JKB"): 40, ("학교", "NNG"): 100}
+    bi = {("NNG", "에", "JKB"): 20, ("NNG", "를", "JKO"): 30, ("NNG", "을", "JKO"): 50}
+    return MorphChannel.fit(regions, uni, bi, beta=5.0, min_count=2)
+
+
+def test_morph_channel_fit_and_candidates():
+    import math
+    from hnc.morph_channel import MorphChannel
+    ch = _toy_channel()
+    assert ch.sub["을/JKO"][0][:2] == (["를", "JKO"], "PARTICLE")
+    assert ch.sub["을/JKO"][0][2] == math.log(35 / 3)                    # −log(3 / (30 + 5))
+    cands = {(tuple(map(tuple, ms)), z): d for ms, z, d in ch.candidates([("학교", "NNG"), ("을", "JKO")])}
+    assert ((("학교", "NNG"), ("를", "JKO")), "PARTICLE") in cands          # 조사 대치
+    assert ((("학교", "NNG"),), "INS") in cands                              # 더 쓴 조사 제거
+    assert ((("학교", "NNG"), ("에", "JKB"), ("을", "JKO")), "DEL") in cands  # 빠뜨린 조사 복원
+    assert all(math.isfinite(d) for d in cands.values())
+    assert MorphChannel.from_json(ch.to_json()).sub == ch.sub

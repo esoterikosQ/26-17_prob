@@ -214,3 +214,139 @@ KAGAS_TO_Z: Dict[str, str] = {
     "MODIFIER": "LEXICAL", "INSERTION": "DEL", "DELETION": "INS", "SPELL": "SPELL", "CONJUGATION": "SPELL",
     "SHORTEN": "SPELL", "WS": "WS", "PUNCT": "PUNCT", "WO": "WO", "UNCLASSIFIED": "UNK",
 }
+
+
+# ---------------------------------------------------------------------------
+# A-3b 형태소 채널 확률 (자동 z 지도 추정)과 A-3c 디코더용 역후보
+# ---------------------------------------------------------------------------
+SUB_Z = ("PARTICLE", "ENDING", "LEXICAL", "VARIANT")
+
+
+def _key(m) -> str:
+    return f"{m[0]}/{m[1]}"
+
+
+class MorphChannel:
+    """P_M(m′|m)의 추정치와 역방향 후보(관측 m′ → 의도 m).
+
+    생성 방향의 사건과 확률(y 형태소 m, 왼쪽 y 형태소 품사 lt):
+    - 대치 m → m′ (z ∈ SUB_Z): P = N(m→m′) / (N(m) + β)
+    - 삭제(쓴 사람이 m을 빠뜨림): P(DEL | m, lt) = (N_del(m, lt) + β·P(DEL|m)) / (N(lt, m) + β),
+      P(DEL|m) = N_del(m) / (N(m) + β)
+    - 삽입(쓴 사람이 m′를 더 씀): P(INS m′ | lt) = N_ins(m′, lt) / (N(lt) + β)
+    - 동일: P(IDENT | m) = 1 − (대치 + 삭제)/N(m), 품사 수준 비율로 평활(β).
+    디코딩 비용 증분 Δ(x를 그대로 두는 가설 대비, 자연로그 음수):
+    - 대치 후보(x의 m′ 자리에 m): −log P(m→m′) + log P(IDENT | m′)
+    - 삽입 제거 후보(x의 m′를 뺌): −log P(INS m′ | lt) + log P(IDENT | m′)
+    - 삭제 복원 후보(lt 뒤에 m을 넣음): −log P(DEL | m, lt)
+    빈도 ``min_count`` 미만 사건은 후보로 쓰지 않는다.
+    """
+
+    def __init__(self, sub, ident, ins, dele):
+        self.sub = sub        # m′ 키 → [(m, z, 비용 −log P(m→m′))]
+        self.ident = ident    # 형태소 키 → −log P(IDENT|m)
+        self.ins = ins        # (m′ 키, lt) → −log P(INS m′|lt)
+        self.dele = dele      # lt → [(m, 비용 −log P(DEL|m,lt))]
+        self._tag_ident = {}
+        for k, c in ident.items():
+            t = k.rsplit("/", 1)[1]
+            self._tag_ident.setdefault(t, []).append(c)
+        self._tag_ident = {t: sorted(v)[len(v) // 2] for t, v in self._tag_ident.items()}
+
+    # --- 추정 -----------------------------------------------------------------
+    @classmethod
+    def fit(cls, regions: Sequence[dict], uni: Dict[Tuple[str, str], int], bi: Dict[Tuple[str, str, str], int],
+            beta: float = 5.0, min_count: int = 2, max_alt: int = 8) -> "MorphChannel":
+        import math
+        from collections import Counter, defaultdict
+        n_sub, n_sub_z, n_del, n_del_lt, n_ins = Counter(), defaultdict(Counter), Counter(), Counter(), Counter()
+        for r in regions:
+            for e in r["edits"]:
+                z = e["z"]
+                m = tuple(e["m"]) if e["m"] else None
+                m2 = tuple(e["m2"]) if e["m2"] else None
+                if z in SUB_Z:
+                    n_sub[(m, m2)] += 1
+                    n_sub_z[(m, m2)][z] += 1
+                elif z == "DEL":
+                    n_del[m] += 1
+                    n_del_lt[(m, e["lt"])] += 1
+                elif z == "INS":
+                    n_ins[(m2, e["lt"])] += 1
+        n_tag = Counter()
+        for (f, t), n in uni.items():
+            n_tag[t] += n
+        out_sub = Counter()
+        for (m, m2), n in n_sub.items():
+            out_sub[m] += n
+        # 품사 수준 비동일 비율 → 형태소별 P(IDENT) 평활
+        tag_nonid = Counter()
+        for m, n in list(out_sub.items()) + list(n_del.items()):
+            tag_nonid[m[1]] += n
+        ident = {}
+        for (f, t), n in uni.items():
+            r_tag = min(tag_nonid[t] / n_tag[t], 0.99) if n_tag[t] else 0.0
+            nonid = out_sub.get((f, t), 0) + n_del.get((f, t), 0)
+            p = (n - nonid + beta * (1 - r_tag)) / (n + beta)
+            ident[_key((f, t))] = -math.log(min(max(p, 1e-6), 1.0))
+        sub = defaultdict(list)
+        for (m, m2), n in n_sub.items():
+            if n < min_count or m is None or m2 is None:
+                continue
+            p = n / (uni.get(m, 0) + beta)
+            sub[_key(m2)].append((list(m), n_sub_z[(m, m2)].most_common(1)[0][0], -math.log(min(p, 1.0))))
+        sub = {k: sorted(v, key=lambda a: a[2])[:max_alt] for k, v in sub.items()}
+        ins = {}
+        for (m2, lt), n in n_ins.items():
+            if n >= min_count:
+                ins[f"{_key(m2)}|{lt}"] = -math.log(min(n / (n_tag[lt] + beta), 1.0))
+        dele = defaultdict(list)
+        for (m, lt), n in n_del_lt.items():
+            if n < min_count:
+                continue
+            p_m = n_del[m] / (uni.get(m, 0) + beta)
+            p = (n + beta * p_m) / (bi.get((lt, m[0], m[1]), 0) + beta)
+            dele[lt].append((list(m), -math.log(min(p, 1.0))))
+        dele = {k: sorted(v, key=lambda a: a[1])[:max_alt] for k, v in dele.items()}
+        return cls(dict(sub), ident, ins, dele)
+
+    # --- 직렬화 ---------------------------------------------------------------
+    def to_json(self) -> str:
+        import json
+        return json.dumps({"sub": self.sub, "ident": self.ident, "ins": self.ins, "dele": self.dele},
+                          ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, s: str) -> "MorphChannel":
+        import json
+        d = json.loads(s)
+        return cls(d["sub"], d["ident"], d["ins"], d["dele"])
+
+    # --- 디코딩 ---------------------------------------------------------------
+    def ident_cost(self, m) -> float:
+        k = _key(m)
+        if k in self.ident:
+            return self.ident[k]
+        return self._tag_ident.get(m[1], 0.0)
+
+    def candidates(self, ms: Sequence[M], lt0: str = "BOS", max_cands: int = 12) -> List[Tuple[List[M], str, float]]:
+        """어절 하나의 x 형태소열 ``ms``(부호 제외) → [(바뀐 형태소열, z, 비용 증분 Δ)] (편집 1개씩).
+
+        ``lt0``: 어절 앞(왼쪽 어절의 마지막 형태소) 품사.
+        """
+        out = []
+        for j, m2 in enumerate(ms):
+            idc = self.ident_cost(m2)
+            for m, z, c in self.sub.get(_key(m2), ()):
+                out.append((list(ms[:j]) + [tuple(m)] + list(ms[j + 1:]), z, c - idc))
+            lt = ms[j - 1][1] if j > 0 else lt0
+            c = self.ins.get(f"{_key(m2)}|{lt}")
+            if c is not None and len(ms) > 1:
+                out.append((list(ms[:j]) + list(ms[j + 1:]), "INS", c - idc))
+        for j in range(len(ms)):
+            for m, c in self.dele.get(ms[j][1], ()):
+                if j + 1 < len(ms) and tuple(ms[j + 1]) == tuple(m):
+                    continue
+                out.append((list(ms[:j + 1]) + [tuple(m)] + list(ms[j + 1:]), "DEL", c))
+        out.sort(key=lambda a: a[2])
+        return out[:max_cands]

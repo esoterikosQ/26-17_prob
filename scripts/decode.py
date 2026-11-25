@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
 from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
+from hnc.morph_channel import MorphChannel  # noqa: E402
 from hnc.morph_lm import load_lm  # noqa: E402
 
 SPLIT_FILE = {"dev": "val", "test": "test"}
@@ -99,6 +100,7 @@ def main() -> None:
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
+    ap.add_argument("--morph-channel", type=Path, default=None, help="A-3 형태소 채널 디렉토리(params.json)")
     ap.add_argument("--lam-lm", default="0.5,1,2")
     ap.add_argument("--lam-len", default="0,2")
     ap.add_argument("--beam", type=int, default=8)
@@ -115,7 +117,9 @@ def main() -> None:
     channel = JamoChannel(params, others)
     vocab = load_vocab(args.vocab, args.vocab_min)
     base = DecoderConfig(beam=args.beam, k_cand=args.k_cand)
-    _DEC = Decoder(CandidateGenerator(params, vocab, channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base)
+    mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8")) if args.morph_channel else None
+    _DEC = Decoder(CandidateGenerator(params, vocab, channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
+                   morph_channel=mc)
     _CFGS = [replace(base, lam_lm=float(a), lam_len=float(b))
              for a, b in itertools.product(args.lam_lm.split(","), args.lam_len.split(","))]
     print(json.dumps({"load_sec": round(time.time() - t0, 1), "vocab": len(vocab),

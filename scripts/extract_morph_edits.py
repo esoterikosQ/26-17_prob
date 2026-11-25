@@ -14,7 +14,9 @@
   (``region_family``: 조사 관여 → PARTICLE 등)와 대조한다.
 - ``--inspect-check``: 사용자가 판정한 A-0d 검수 파일(EC dev)의 편집 구간마다 자동 z를 붙여 판정과 나란히 출력.
 - EC는 train에서 범주 구분 없이 ``--ec-n``쌍을 무작위로 뽑는다(동일 쌍도 포함해야 IDENT 기저율이 맞음).
-- 출력: datasets/morph/<set>_<split>/{regions.jsonl, ctx_counts.json}, outputs/a3/extract_<set>_<split>.json(통계).
+- 출력: datasets/morph/<set>_<split>/{regions.jsonl, ctx_counts.json, morph_counts.json}, outputs/a3/extract_<set>_<split>.json(통계).
+  ``morph_counts.json``: y 형태소(부호 제외) 단일 빈도 ``uni``[(형태, 품사, n)]와 조사·어미의 (왼쪽 품사, 형태, 품사)
+  빈도 ``bi`` — 형태소 채널 확률의 분모(A-3b). 편집마다 왼쪽 y 형태소 품사 ``lt``를 기록한다.
 """
 
 from __future__ import annotations
@@ -124,17 +126,25 @@ def analyze_region(y, x, g, ys, xs, fq, systematic):
     cands = [(tuple(e["m"]), tuple(e["m2"])) for e in edits
              if e["z"] in ("LEXICAL", "VARIANT") and mclass(e["m"]) == mclass(e["m2"]) == "C"
              and variant.common(e["m"], e["m2"])]
+    def left_tag(k):
+        j = k - 1
+        while j >= 0 and is_punct(ys[j][:2]):
+            j -= 1
+        return ys[j][1] if j >= 0 else "BOS"
     p, last = 0, None
     out = []
+    first = yidx[0] if yidx else next((k for k, q in enumerate(ys) if q[2] >= g.y_start), len(ys))
     for e in edits:
         if e["m"] is not None:
             k = yidx[p]
             p += 1
             last = k
             c = (ys[k][1], batchim(y, ys[k][2]))
+            lt = left_tag(k)
         else:
-            c = ("INS_AFTER", ys[last][1] if last is not None else "BOS")
-        out.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c})
+            lt = ys[last][1] if last is not None else left_tag(first)
+            c = ("INS_AFTER", lt)
+        out.append({"m": e["m"], "m2": e["m2"], "z": e["z"], "c": c, "lt": lt})
     return out, region_z(out), region_family(out), cands
 
 
@@ -163,6 +173,8 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic:
     out_dir = Path("datasets/morph") / f"{name}_{split}"
     out_dir.mkdir(parents=True, exist_ok=True)
     ctx = Counter()                    # (품사, 받침) → y 형태소 수 (부호 제외)
+    uni = Counter()                    # (형태, 품사) → y 빈도
+    bi = Counter()                     # 조사·어미의 (왼쪽 품사, 형태, 품사) → y 빈도
     zc = Counter()                     # 구간 대표 z
     ec_z = Counter()                   # 형태소 편집 z
     top = defaultdict(Counter)         # z → (m, m′) 빈도
@@ -177,9 +189,14 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic:
             xsp = ana.spans_many([r["x"] for r in chunk])
             for r, ys, xs in zip(chunk, ysp, xsp):
                 y, x = r["y"], r["x"]
+                lt = "BOS"
                 for f, t, a, b in ys:
                     if not is_punct((f, t)):
                         ctx[(t, batchim(y, a))] += 1
+                        uni[(f, t)] += 1
+                        if t[0] in "JE":
+                            bi[(lt, f, t)] += 1
+                        lt = t
                 if x == y:
                     continue
                 for g in align_pair(y, x, [Span(*q) for q in ys]):
@@ -201,6 +218,9 @@ def run(name: str, split: str, args, ana: MorphAnalyzer, freq: dict, systematic:
                                          "family": fam, "edits": out_edits, "kagas": kg}, ensure_ascii=False) + "\n")
     (out_dir / "ctx_counts.json").write_text(json.dumps([[t, b, n] for (t, b), n in ctx.most_common()],
                                                         ensure_ascii=False), encoding="utf-8")
+    (out_dir / "morph_counts.json").write_text(json.dumps(
+        {"uni": [[f, t, n] for (f, t), n in uni.most_common()],
+         "bi": [[lt, f, t, n] for (lt, f, t), n in bi.most_common()]}, ensure_ascii=False), encoding="utf-8")
 
     def agree(row):
         tot = sum(row.values())

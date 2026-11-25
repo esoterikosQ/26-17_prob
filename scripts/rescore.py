@@ -31,6 +31,7 @@ from scripts.decode import A1_TYPES, SPLIT_FILE, load_vocab, m2_blocks, m2score,
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
 from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
+from hnc.morph_channel import MorphChannel  # noqa: E402
 from hnc.morph_lm import load_lm  # noqa: E402
 
 _DEC = None
@@ -74,6 +75,7 @@ def main() -> None:
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native_em"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
+    ap.add_argument("--morph-channel", type=Path, default=None, help="A-3 형태소 채널 디렉토리(params.json)")
     ap.add_argument("--base-lam-lm", type=float, default=0.5)
     ap.add_argument("--nbest", type=int, default=8)
     ap.add_argument("--beam", type=int, default=8)
@@ -99,7 +101,9 @@ def main() -> None:
         others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
         base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm)
         _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min),
-                                          JamoChannel(params, others), base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base)
+                                          JamoChannel(params, others), base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
+                       morph_channel=MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
+                       if args.morph_channel else None)
         _CFG, _NB = base, args.nbest
     pcfg_model = args.pcfg_model or args.pcfg_root / "data/models/pcfg_best.pkl"
     if not args.from_nbest or args.repcfg:

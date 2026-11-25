@@ -57,3 +57,16 @@ def test_nbest_sorted_and_consistent(dec):
     assert nb[0].text == dec.decode(x) == "집에 갔다."
     assert [h.score for h in nb] == sorted((h.score for h in nb), reverse=True)
     assert len({h.text for h in nb}) == len(nb) and all(h.n_morph > 0 for h in nb)
+
+
+def test_decoder_adds_morph_channel_candidates(gen):
+    from hnc.morph_channel import MorphChannel
+    regions = [{"edits": [{"m": ["에", "JKB"], "m2": None, "z": "DEL", "lt": "NNG"}]}] * 5
+    mc = MorphChannel.fit(regions, {("에", "JKB"): 50, ("집", "NNG"): 100}, {("NNG", "에", "JKB"): 20})
+    d = Decoder(gen, MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer(), morph_channel=mc)
+    prep = d.prepare("집 갔다")
+    cands = {y: c for y, c, _ in prep[(0, 1)]}
+    assert "집에" in cands and "집" in cands                                  # 빠뜨린 조사 복원 후보(Kiwi join 실현)
+    assert cands["집에"] > cands["집"]                                        # 채널은 원문을 선호
+    plain = {y for y, _, _ in Decoder(gen, MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer()).prepare("집 갔다")[(0, 1)]}
+    assert "집에" not in plain

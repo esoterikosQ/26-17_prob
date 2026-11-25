@@ -17,6 +17,12 @@
 - x 어절 위치를 따라 빔 탐색. 구간은 x 어절 1개(분리·철자) 또는 2개(공백 삭제로 합치기).
 - 점수 = λ_LM·log P_LM(형태소열) − λ_ch·(채널 비용 + 구간 사이 공백의 동일 비용) + λ_len·형태소 수.
 - 앞뒤 부호는 x 그대로 둔다(A-1 범위 밖). 형태소열은 후보 조각을 Kiwi로 따로 분석해 얻는다(캐시).
+
+형태소 채널(A-3c, ``morph_channel``을 주면): x를 Kiwi로 한 번 분석해 어절별 형태소(m′의 근사)를 얻고,
+``MorphChannel.candidates``의 편집(조사·어미·어휘 대치, 더 쓴 형태소 제거, 빠뜨린 형태소 복원)을 하나씩
+적용한 형태소열을 Kiwi ``join``으로 실현해 어절 후보에 더한다(이형태·축약·불규칙 활용은 join이 처리).
+비용 = 원문 어절의 자모 동일 비용 + Δ_M. 같은 표층이 자모 경로와 형태소 경로에서 모두 나오면
+두 경로의 확률을 더한다(P(x|y) = Σ_{m′} P_M(m′|m) P_J(x|m′)의 두 항).
 """
 
 from __future__ import annotations
@@ -147,6 +153,16 @@ class CandidateGenerator:
         return out
 
 
+def _punct_tag(tag: str) -> bool:
+    return tag in ("SF", "SP", "SS", "SSO", "SSC", "SE", "SO", "SW")
+
+
+def _neglog_add(a: float, b: float) -> float:
+    """−log(e^{−a} + e^{−b})."""
+    m = min(a, b)
+    return m - math.log1p(math.exp(-abs(a - b)))
+
+
 @dataclass
 class _Hyp:
     score: float
@@ -167,8 +183,10 @@ class NBest:
 
 
 class Decoder:
-    def __init__(self, gen: CandidateGenerator, lm, analyzer, cfg: Optional[DecoderConfig] = None):
+    def __init__(self, gen: CandidateGenerator, lm, analyzer, cfg: Optional[DecoderConfig] = None,
+                 morph_channel=None):
         self.gen = gen
+        self.mc = morph_channel
         self.lm = lm
         self.ana = analyzer
         self.cfg = cfg or gen.cfg
@@ -182,11 +200,54 @@ class Decoder:
             self._morph_cache[text] = m
         return m
 
-    def _span_candidates(self, toks: Sequence[str], i: int, L: int) -> List[Tuple[str, float]]:
+    def _x_morphs(self, x: str, toks: Sequence[str]) -> List[List[Tuple[str, str, int]]]:
+        """x 어절별 Kiwi 형태소 [(형태, 품사, 어절 안 시작 위치)] — 위치로 배정."""
+        offs, pos = [], 0
+        for t in toks:
+            a = x.index(t, pos)
+            offs.append((a, a + len(t)))
+            pos = a + len(t)
+        out: List[List[Tuple[str, str, int]]] = [[] for _ in toks]
+        k = 0
+        for t in self.ana.kiwi.tokenize(x):
+            while k < len(offs) and t.start >= offs[k][1]:
+                k += 1
+            if k < len(offs) and t.start >= offs[k][0]:
+                out[k].append((t.form, t.tag, t.start - offs[k][0]))
+        return out
+
+    def _morph_candidates(self, core: str, lead: str, ms, lt0: str) -> List[Tuple[str, float]]:
+        from .morph_channel import is_punct
+        inside = [(f, t) for f, t, a in ms if len(lead) <= a < len(lead) + len(core) and not is_punct((f, t))]
+        if not inside:
+            return []
+        out = []
+        for ms2, _z, d in self.mc.candidates(inside, lt0):
+            if not ms2:
+                continue
+            try:
+                y = self.ana.kiwi.join(ms2)
+            except Exception:
+                continue
+            if y and y != core and " " not in y and has_hangul(y) and self.gen._in_vocab(y):
+                out.append((y, d))
+        return out
+
+    def _span_candidates(self, toks: Sequence[str], i: int, L: int, xm=None) -> List[Tuple[str, float]]:
         if L == 1:
             lead, core, trail = split_punct(toks[i])
             if core and has_hangul(core):
-                return [(lead + y + trail, c) for y, c in self.gen.generate(core)]
+                cands = self.gen.generate(core)
+                if xm is not None:
+                    base = cands[-1][1] if cands and cands[-1][0] == core else 0.0
+                    prev = [m for m in xm[i - 1] if not _punct_tag(m[1])] if i > 0 else []
+                    lt0 = prev[-1][1] if prev else "BOS"
+                    merged: Dict[str, float] = dict(cands)
+                    for y, d in self._morph_candidates(core, lead, xm[i], lt0):
+                        c = base + d
+                        merged[y] = _neglog_add(merged[y], c) if y in merged else c
+                    cands = list(merged.items())
+                return [(lead + y + trail, c) for y, c in cands]
             return [(toks[i], self.gen.channel.neglogprob(toks[i], toks[i]) if has_hangul(toks[i]) else 0.0)]
         l1, c1, t1 = split_punct(toks[i])
         l2, c2, t2 = split_punct(toks[i + 1])
@@ -198,11 +259,12 @@ class Decoder:
         """λ와 무관한 준비: 구간 (i, L)별 후보 [(y 조각, 채널 비용, LM 토큰)]."""
         toks = x.split()
         spans = (1, 2) if self.cfg.merge_spans else (1,)
+        xm = self._x_morphs(x, toks) if self.mc is not None and toks else None
         prep = {}
         for i in range(len(toks)):
             for L in spans:
                 if i + L <= len(toks):
-                    prep[(i, L)] = [(y, ch, self._tokens(y)) for y, ch in self._span_candidates(toks, i, L)]
+                    prep[(i, L)] = [(y, ch, self._tokens(y)) for y, ch in self._span_candidates(toks, i, L, xm)]
         return prep
 
     def decode(self, x: str, cfg: Optional[DecoderConfig] = None) -> str:
