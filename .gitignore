@@ -31,3 +31,4 @@ venv/
 # 외부 도구 소스·빌드 (KenLM 등)
 tools/
 .venv-kagas/
+.venv-nlm/

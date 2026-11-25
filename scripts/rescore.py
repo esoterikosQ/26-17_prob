@@ -8,6 +8,8 @@
 - 재채점 점수 = λ_LM·LM − 채널 + λ_P·PCFG + λ_len·형태소 수. 격자의 각 설정으로 문장마다 최고 가설을
   골라 m2scorer로 채점한다(전체·WS+SPELL). λ_P = 0이 PCFG 없는 기준이다.
 - 오라클: 문장마다 정답 교정문 y와 문자 유사도가 가장 높은 가설을 골랐을 때의 F0.5 (n-best의 상한 추정).
+- 신경 LM(B안, ``--nlm``): ``scripts/nlm_score.py``가 만든 ``nlm_<이름>.jsonl``의 문장 로그확률(인과 LM)·PLL(마스크
+  LM)을 λ_N·점수로 더한다(``--from-nbest``와 함께). λ_N = 0이 신경 LM 없는 기준이다.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import itertools
+from concurrent.futures import ThreadPoolExecutor
 import json
 import multiprocessing as mp
 import sys
@@ -72,6 +75,9 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--tag", default="native_em_rescore")
     ap.add_argument("--from-nbest", action="store_true", help="outputs/rescore/<tag>/nbest.jsonl을 다시 쓰고 디코딩·PCFG 채점은 건너뜀")
+    ap.add_argument("--nlm", default="", help="신경 LM 점수 이름(쉼표): outputs/rescore/<tag>/nlm_<이름>.jsonl")
+    ap.add_argument("--lam-nlm", default="0,0.25,0.5,1", help="신경 LM 가중치 격자(이름마다 같은 목록)")
+    ap.add_argument("--out-name", default=None, help="요약 파일 이름(기본: summary.json / summary_regrid.json)")
     args = ap.parse_args()
     out = Path("outputs/rescore") / args.tag
     out.mkdir(parents=True, exist_ok=True)
@@ -107,19 +113,34 @@ def main() -> None:
             for i, hyps in res:
                 f.write(json.dumps({"i": i, "hyps": hyps}, ensure_ascii=False) + "\n")
     wall = time.time() - t0
+    nlms = [x for x in args.nlm.split(",") if x]
+    for name in nlms:
+        with open(out / f"nlm_{name}.jsonl", encoding="utf-8") as f:
+            sc = {r["i"]: r["scores"] for r in map(json.loads, f)}
+        for i, hyps in res:
+            assert len(sc[i]) == len(hyps), (name, i)
+            for h, v in zip(hyps, sc[i]):
+                h[f"nlm_{name}"] = v["lp"]
 
     def evaluate(choose, name):
         hyp = out / f"hyp_{name}.txt"
         hyp.write_text("\n".join(choose(i, hyps) for i, hyps in res) + "\n", encoding="utf-8")
         return {"all": m2score(hyp, out / "gold_all.m2"), "a1": m2score(hyp, out / "gold_a1.m2")}
 
-    rows = []
-    for lm_w, p_w, len_w in itertools.product(*(map(float, v.split(",")) for v in
-                                                (args.lam_lm, args.lam_pcfg, args.lam_len))):
-        def choose(i, hyps, lm_w=lm_w, p_w=p_w, len_w=len_w):
-            return max(hyps, key=lambda h: lm_w * h["lm"] - h["ch"] + p_w * h["pcfg"] + len_w * h["nm"])["text"]
-        rows.append({"lam_lm": lm_w, "lam_pcfg": p_w, "lam_len": len_w,
-                     **evaluate(choose, f"lm{lm_w}_p{p_w}_len{len_w}")})
+    grids = [list(map(float, v.split(","))) for v in (args.lam_lm, args.lam_pcfg, args.lam_len)]
+    grids += [list(map(float, args.lam_nlm.split(",")))] * len(nlms)
+
+    def run(combo):
+        lm_w, p_w, len_w, *n_w = combo
+
+        def choose(i, hyps):
+            return max(hyps, key=lambda h: lm_w * h["lm"] - h["ch"] + p_w * h["pcfg"] + len_w * h["nm"]
+                       + sum(w * h[f"nlm_{n}"] for n, w in zip(nlms, n_w)))["text"]
+        tag = f"lm{lm_w}_p{p_w}_len{len_w}" + "".join(f"_{n}{w}" for n, w in zip(nlms, n_w))
+        return {"lam_lm": lm_w, "lam_pcfg": p_w, "lam_len": len_w,
+                **{f"lam_{n}": w for n, w in zip(nlms, n_w)}, **evaluate(choose, tag)}
+    with ThreadPoolExecutor(args.workers) as ex:
+        rows = list(ex.map(run, itertools.product(*grids)))
     ys = {i: " ".join(r["y"].split()) for i, r in enumerate(recs)}
 
     def oracle(i, hyps):
@@ -130,7 +151,7 @@ def main() -> None:
     summary = {"sents": len(recs), "wall_sec": round(wall, 1), "nbest": args.nbest, "base_lam_lm": args.base_lam_lm,
                "mean_hyps": round(n_hyps / len(res), 2), "pcfg_parse_rate": round(n_parsed / n_hyps, 4),
                "oracle": oracle_rows, "grid": rows}
-    name = "summary_regrid.json" if args.from_nbest else "summary.json"
+    name = args.out_name or ("summary_regrid.json" if args.from_nbest else "summary.json")
     (out / name).write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
 
