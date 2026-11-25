@@ -41,7 +41,9 @@ def per_candidate(text, source, gold):
     if a == b:
         return {"text": text, "tp": [], "proposed": 0}
     graphs = [lev.edit_graph(*lev.levenshtein_matrix(a, b, 1, 1, cost)) for cost in (1, 2)]
-    vertices, edges, dist, table = lev.merge_graph(*graphs[0], *graphs[1])
+    v1, e1, d1, t1 = graphs[0]
+    v2, e2, d2, t2 = graphs[1]
+    vertices, edges, dist, table = lev.merge_graph(v1, v2, e1, e2, d1, d2, t1, t2)
     vertices, edges, dist, table = lev.transitive_arcs(vertices, edges, dist, table, 2)
     adjusted = lev.set_weights(edges, dist, table, gold)
     predicted = lev.best_edit_seq_bf(vertices, edges, adjusted, table)

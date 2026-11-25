@@ -1,5 +1,6 @@
 import itertools
 import math
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +22,17 @@ def test_micro_oracle_matches_cartesian_search_not_mean_sentence_f():
     assert oracle(pools).f == max(aggregate(p).f for p in itertools.product(*pools))
     with pytest.raises(ValueError):
         oracle([[Counts(0, 0, 1), Counts(0, 0, 2)]])
+
+
+def test_official_m2_counts(monkeypatch):
+    from scripts.c_metric import annotations, per_candidate
+    tool = Path("tools/m2scorer/scripts").resolve()
+    if not (tool / "levenshtein.py").is_file():
+        pytest.skip("M² 채점기 미설치")
+    monkeypatch.syspath_prepend(str(tool))
+    x, _, gold = annotations(["S 작은 새는 난다", "A 1 2|||PARTICLE|||새가|||REQUIRED|||-NONE-|||0"])
+    assert per_candidate("작은 새가 난다", x, gold) == {"text": "작은 새가 난다", "tp": [0], "proposed": 1}
+    assert per_candidate(x, x, gold)["tp"] == []
 
 
 def test_observed_path_is_distinct_from_positive_smoothed_path():
