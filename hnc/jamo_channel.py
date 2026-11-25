@@ -44,6 +44,29 @@ class ChannelParams:
         return cls({(tuple(a), tuple(b)): p for a, b, p in d["edits"]}, d["identity"], d["other_logp"])
 
 
+def interpolate(primary: ChannelParams, secondary: ChannelParams, weight: float) -> ChannelParams:
+    """부분열 편집마다 (1−ρ)P₀ + ρP₁. 목록에 없는 다자모 편집의 *직접* 가중치는 0."""
+    if not 0.0 <= weight <= 1.0:
+        raise ValueError("자모 채널 혼합 가중치는 [0, 1]이어야 한다")
+    if weight == 0:
+        return primary
+    if weight == 1:
+        return secondary
+    if primary.identity.keys() != secondary.identity.keys():
+        raise ValueError("자모 동일 편집의 알파벳이 다르다")
+
+    def mix(a: float, b: float) -> float:
+        return (1.0 - weight) * a + weight * b
+
+    keys = dict.fromkeys(primary.edits)
+    keys.update(dict.fromkeys(secondary.edits))
+    # 원문자 백오프는 이미 로그값이다.
+    m = max(primary.other_logp, secondary.other_logp)
+    other = m + math.log(mix(math.exp(primary.other_logp - m), math.exp(secondary.other_logp - m)))
+    return ChannelParams({k: mix(primary.edits.get(k, 0.0), secondary.edits.get(k, 0.0)) for k in keys},
+                         {s: mix(p, secondary.identity[s]) for s, p in primary.identity.items()}, other)
+
+
 def estimate(edit_rows: Iterable[dict], alpha_rows: Iterable[dict], kappa: float = 1.0,
              min_count: int = 2, min_identity: float = 0.5,
              other_logp: float = math.log(1e-9)) -> ChannelParams:

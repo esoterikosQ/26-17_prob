@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.decode import SPLIT_FILE, load_vocab, m2_blocks  # noqa: E402
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
-from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
+from scripts.channel_options import add_channel_options, load_channel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
 from hnc.morph_channel import MorphChannel, Z_KO  # noqa: E402
 from hnc.morph_lm import load_lm  # noqa: E402
@@ -64,6 +64,7 @@ def main() -> None:
     ap.add_argument("--lm", default="datasets/lm/v0/lm5.bin,datasets/lm/v1/lm5.bin")
     ap.add_argument("--lm-weights", default="0.8,0.2")
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/learner_lang8"))
+    add_channel_options(ap)
     ap.add_argument("--morph-channel", type=Path, default=Path("datasets/morph_channel/learner"))
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
@@ -78,11 +79,12 @@ def main() -> None:
     args = ap.parse_args()
     out = Path("outputs/a3") / f"explain_{args.tag}"
     out.mkdir(parents=True, exist_ok=True)
-    params = ChannelParams.from_json((args.channel / "params.json").read_text(encoding="utf-8"))
-    others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
-    _CFG = DecoderConfig(beam=args.beam, lam_lm=args.lam_lm, morph_max_cands=args.morph_max_cands, morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine)
+    channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
+    _CFG = DecoderConfig(beam=args.beam, lam_lm=args.lam_lm, morph_max_cands=args.morph_max_cands,
+                         morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine,
+                         morph_weight=args.morph_weight)
     mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
-    _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min), JamoChannel(params, others), _CFG),
+    _DEC = Decoder(CandidateGenerator(channel.params, load_vocab(args.vocab, args.vocab_min), channel, _CFG),
                    load_lm(args.lm, args.lm_weights), MorphAnalyzer(), _CFG, morph_channel=mc)
     recs = [json.loads(line) for line in open(f"datasets/kor_gec/{args.set}_{args.split}.jsonl", encoding="utf-8")]
     gold = m2_blocks(Path("data/kor_gec") / args.set / f"{args.set}_{SPLIT_FILE[args.split]}.m2")
@@ -95,7 +97,7 @@ def main() -> None:
     n_changed = n_tp = 0
     conf_top = Counter()
     with open(out / "sample.md", "w", encoding="utf-8") as f:
-        f.write("# 오류유형 설명 표본 (Kor-Learner dev)\n\n각 교정에 오류유형 사후확률 P(z | x, ŷ)를 붙였다. "
+        f.write(f"# 오류유형 설명 표본 ({args.set} {args.split})\n\n각 교정에 오류유형 사후확률 P(z | x, ŷ)를 붙였다. "
                 "정답 편집과 같은 교정이면 KAGAS 자동 유형을 함께 적었다.\n\n")
         for (i, hyp, ex), r, g in zip(res, recs, gold):
             ge = {(s, e): (t, c) for s, e, t, c in gold_edits(g)}
@@ -120,6 +122,7 @@ def main() -> None:
         tot = sum(row.values())
         return {"n": tot, "acc": round(row[key] / tot, 3) if tot else None, **dict(row.most_common(4))}
     summary = {"set": args.set, "split": args.split, "sents": len(recs), "lam_lm": args.lam_lm,
+               "mix_weight": args.mix_weight, "morph_weight": args.morph_weight,
                "changed_spans": n_changed, "true_positive_spans": n_tp, "pred_z": dict(z_all.most_common()),
                "z_vs_kagas_on_tp": {k: acc(v, k) for k, v in sorted(conf.items(), key=lambda kv: -sum(kv[1].values()))},
                "top_pairs": [[a, b, n] for (a, b), n in conf_top.most_common(20)]}

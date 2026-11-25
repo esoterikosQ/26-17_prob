@@ -1,10 +1,12 @@
 """A-1d 디코더 검증 (예문·LM·계수는 손으로 만든 값)."""
 
+import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig
+from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig, PreparedSentence
 from hnc.jamo_channel import JamoChannel, estimate
 from hnc.morph import MorphAnalyzer
 from hnc.morph_lm import MorphLM
@@ -85,3 +87,30 @@ def test_explain_posterior_over_paths(gen):
     by_x = {e["x"]: e for e in ex}
     assert by_x["집"]["y"] == "집에" and by_x["집"]["posterior"] == {"PARTICLE_DEL": 1.0}
     assert by_x["갓다"]["posterior"] == {"JAMO": 1.0}
+
+    # 양의 질량을 주지 않은 형태소 경로는 설명에서만 지우는 것이 아니라 빔에 들어가기 전부터 제외한다.
+    no_m = d.search_nbest(x, prep, replace(d.cfg, morph_weight=0), 8)
+    jamo = Decoder(gen, d.lm, d.ana)
+    plain = jamo.search_nbest(x, jamo.prepare(x), n_best=8)
+    assert [(h.text, h.score) for h in no_m] == [(h.text, h.score) for h in plain]
+
+
+@pytest.mark.parametrize("weight", [0, .1, 1, 3])
+def test_same_surface_mass_and_explanation_use_same_weight(gen, weight):
+    d = Decoder(gen, MorphLM(FIX / "tiny_lm.arpa"), MorphAnalyzer(), morph_channel=object())
+    p = PreparedSentence()
+    p[(0, 1)] = [("밥", 0., ["▁밥/NNG"]), ("집", -math.log(.375), ["▁집/NNG"])]
+    p.paths = {(0, "밥"): {"IDENT": 0.}, (0, "집"): {"JAMO": -math.log(.125), "PARTICLE": -math.log(.25)}}
+    h = next(h for h in d.search_nbest("밥", p, replace(d.cfg, morph_weight=weight)) if h.text == "집")
+    total = .125 + .25 * weight
+    assert h.ch == pytest.approx(-math.log(total))
+    expected = {"JAMO": .125 / total}
+    if weight:
+        expected["PARTICLE"] = .25 * weight / total
+    assert d.explain("밥", h)[0]["posterior"] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("weight", [-1, math.inf, math.nan])
+def test_morph_weight_validation(weight):
+    with pytest.raises(ValueError):
+        DecoderConfig(morph_weight=weight)

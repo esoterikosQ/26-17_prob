@@ -63,6 +63,11 @@ class DecoderConfig:
     morph_max_cands: int = 30     # 어절당 형태소 편집 후보 수(편집 1개; 사건 빈도순)
     morph_two_edits: bool = False  # 상위 형태소 후보에 편집 하나를 더(어절당 2개)
     morph_combine: int = 0        # 형태소 편집을 얹을 자모 후보 수(오타 + 조사 오류가 한 어절에 겹친 경우)
+    morph_weight: float = 1.0     # 형태소 편집을 거친 경로 전체에 한 번 곱하는 질량 배수
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.morph_weight) or self.morph_weight < 0:
+            raise ValueError("morph_weight는 0 이상의 유한한 수여야 한다")
 
 
 def _in_scope(sym: str) -> bool:
@@ -170,6 +175,23 @@ def _neglog_add(a: float, b: float) -> float:
     return m - math.log1p(math.exp(-abs(a - b)))
 
 
+def _weighted_paths(raw: Dict[str, float], weight: float) -> Dict[str, float]:
+    if weight == 1:
+        return raw
+    if weight == 0:
+        return {z: c for z, c in raw.items() if z in ("IDENT", "JAMO")}
+    log_w = math.log(weight)
+    return {z: c if z in ("IDENT", "JAMO") else c - log_w for z, c in raw.items()}
+
+
+class PreparedSentence(dict[Tuple[int, int], List[Tuple[str, float, List[str]]]]):
+    """후보와 그 문장의 가중 전 경로 비용. 격자 탐색이 다른 문장의 상태를 참조하지 않게 한다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.paths: Dict[Tuple[int, str], Dict[str, float]] = {}
+
+
 @dataclass
 class _Hyp:
     score: float
@@ -190,6 +212,7 @@ class NBest:
     n_morph: int
     segs: Tuple[Tuple[int, int], ...] = ()
     outs: Tuple[str, ...] = ()
+    paths: Tuple[Dict[str, float], ...] = ()
 
 
 class Decoder:
@@ -295,13 +318,13 @@ class Decoder:
             return []
         return [(l1 + y + t2, c) for y, c in self.gen.generate(c1 + " " + c2, merged_only=True)]
 
-    def prepare(self, x: str) -> Dict[Tuple[int, int], List[Tuple[str, float, List[str]]]]:
+    def prepare(self, x: str) -> PreparedSentence:
         """λ와 무관한 준비: 구간 (i, L)별 후보 [(y 조각, 채널 비용, LM 토큰)]."""
         toks = x.split()
         spans = (1, 2) if self.cfg.merge_spans else (1,)
         xm = self._x_morphs(x, toks) if self.mc is not None and toks else None
-        self._paths = {}
-        prep = {}
+        prep = PreparedSentence()
+        self._paths = prep.paths
         for i in range(len(toks)):
             for L in spans:
                 if i + L <= len(toks):
@@ -321,6 +344,9 @@ class Decoder:
         n = len(x.split())
         if n == 0:
             return [NBest(x, 0.0, 0.0, 0.0, 0)]
+        path_table = prep.paths if isinstance(prep, PreparedSentence) else {}
+        if self.mc is not None and cfg.morph_weight != 1 and not isinstance(prep, PreparedSentence):
+            raise ValueError("형태소 경로 가중치를 바꾸려면 prepare(x)의 경로 정보가 필요하다")
         start = self.lm.begin()
         beams: List[List[_Hyp]] = [[] for _ in range(n + 1)]
         beams[0] = [_Hyp(0.0, start, ())]
@@ -330,6 +356,16 @@ class Decoder:
             beams[i] = heapq.nlargest(cfg.beam, beams[i], key=lambda h: h.score)
             for L in (1, 2):
                 for y, ch, toks_y in prep.get((i, L), ()):
+                    if L == 1 and self.mc is not None and cfg.morph_weight != 1:
+                        raw = path_table.get((i, y))
+                        if raw:
+                            costs = iter(_weighted_paths(raw, cfg.morph_weight).values())
+                            first = next(costs, None)
+                            if first is None:  # λ_M=0이고 형태소 경로만 있는 표층
+                                continue
+                            ch = first
+                            for c in costs:
+                                ch = _neglog_add(ch, c)
                     for h in beams[i]:
                         lm, st = self.lm.extend(h.state, toks_y)
                         sp = self.sp_cost if i > 0 else 0.0
@@ -343,23 +379,28 @@ class Decoder:
             cand = NBest(text, h.score + cfg.lam_lm * e, h.lm + e, h.ch, h.nm, h.segs, h.out)
             if text not in finals or cand.score > finals[text].score:
                 finals[text] = cand
-        return sorted(finals.values(), key=lambda c: -c.score)[:n_best]
+        best = sorted(finals.values(), key=lambda c: -c.score)[:n_best]
+        for cand in best:
+            cand.paths = tuple(_weighted_paths(path_table.get((i, y), {}), cfg.morph_weight) if L == 1 else {}
+                               for (i, L), y in zip(cand.segs, cand.outs))
+        return best
 
     def explain(self, x: str, hyp: "NBest") -> List[dict]:
-        """``prepare(x)`` 직후 고른 가설의 바뀐 구간마다 {i, L, x, y, posterior{z: p}}.
+        """고른 가설의 바뀐 구간마다 {i, L, x, y, posterior{z: p}}. 탐색과 같은 경로 가중치를 쓴다.
 
         두 어절을 합친 구간(L = 2)은 자모 채널(띄어쓰기)만 만들 수 있으므로 JAMO = 1.
         """
         toks = x.split()
         out = []
-        for (i, L), y in zip(hyp.segs, hyp.outs):
+        for (i, L), y, paths in zip(hyp.segs, hyp.outs, hyp.paths, strict=True):
             xs = " ".join(toks[i:i + L])
             if y == xs:
                 continue
             if L == 2:
                 post = {"JAMO": 1.0}
             else:
-                paths = self._paths.get((i, y), {"JAMO": 0.0})
+                if not paths:
+                    raise ValueError("가설의 변경 구간에 설명할 채널 경로가 없다")
                 m = min(paths.values())
                 w = {z: math.exp(m - c) for z, c in paths.items()}
                 tot = sum(w.values())

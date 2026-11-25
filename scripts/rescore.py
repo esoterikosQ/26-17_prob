@@ -28,8 +28,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.decode import A1_TYPES, SPLIT_FILE, load_vocab, m2_blocks, m2score, write_m2  # noqa: E402
+from scripts.channel_options import add_channel_options, load_channel  # noqa: E402
 from hnc.decoder import CandidateGenerator, Decoder, DecoderConfig  # noqa: E402
-from hnc.jamo_channel import ChannelParams, JamoChannel  # noqa: E402
 from hnc.morph import MorphAnalyzer  # noqa: E402
 from hnc.morph_channel import MorphChannel  # noqa: E402
 from hnc.morph_lm import load_lm  # noqa: E402
@@ -73,6 +73,7 @@ def main() -> None:
     ap.add_argument("--lm", default="datasets/lm/v1/lm5.bin", help="LM 경로; 쉼표로 여럿이면 선형 보간")
     ap.add_argument("--lm-weights", default=None, help="보간 가중치(쉼표, --lm 순서)")
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native_em"))
+    add_channel_options(ap)
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
     ap.add_argument("--morph-channel", type=Path, default=None, help="A-3 형태소 채널 디렉토리(params.json)")
@@ -96,15 +97,20 @@ def main() -> None:
     ap.add_argument("--out-name", default=None, help="요약 파일 이름(기본: summary.json / summary_regrid.json)")
     ap.add_argument("--hyp-prefix", default="", help="가설 파일 이름 접두어(다른 설정의 가설 파일을 덮어쓰지 않게)")
     args = ap.parse_args()
+    if args.from_nbest and (args.mix_channel is not None or args.mix_weight != 0 or args.morph_weight != 1):
+        ap.error("기존 n-best에는 이미 합산한 채널 비용만 있다. 혼합·형태소 가중치를 바꾸려면 n-best를 다시 생성한다.")
+    if args.morph_channel is None and args.morph_weight not in (0, 1):
+        ap.error("--morph-weight에는 --morph-channel이 필요하다")
     out = Path("outputs/rescore") / args.tag
     out.mkdir(parents=True, exist_ok=True)
 
     if not args.from_nbest:
-        params = ChannelParams.from_json((args.channel / "params.json").read_text(encoding="utf-8"))
-        others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
-        base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm, morph_max_cands=args.morph_max_cands, morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine)
-        _DEC = Decoder(CandidateGenerator(params, load_vocab(args.vocab, args.vocab_min),
-                                          JamoChannel(params, others), base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
+        channel = load_channel(args.channel, args.mix_channel, args.mix_weight)
+        base = DecoderConfig(beam=args.beam, lam_lm=args.base_lam_lm, morph_max_cands=args.morph_max_cands,
+                             morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine,
+                             morph_weight=args.morph_weight)
+        _DEC = Decoder(CandidateGenerator(channel.params, load_vocab(args.vocab, args.vocab_min),
+                                          channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
                        morph_channel=MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8"))
                        if args.morph_channel else None)
         _CFG, _NB = base, args.nbest
