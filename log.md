@@ -682,3 +682,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
   - Native의 **train 정답 미중복 866문장 .6467**, 그중 확인에 든 406문장은 .6238. 세 자료의 기존 설정 출력은 종전 가설 파일과 바이트 일치(cmp/SHA-256).
   - A-3h: 학습자 확인 2,133문장 중 97개 출력이 달라짐. NOUN 재현율 .1722 → .1745, VERB .0818 → .1000. 전체 P .4059 → .4024, R .2256 → .2263, F0.5 .3500 → .3482. dev 전체에서도 203/4,264개가 바뀌고 F0.5 .3515 → .3501. 기본 후보에 추가하지 않는다.
   - 검증: Pylance MCP가 시간 초과라 편집기 정적 진단은 확인하지 못했다. 원격 `python -m compileall -q hnc scripts tests`, `python -m pytest -q -p no:cacheprovider tests` **117 passed**. 두 tmux 종료 코드 0; test 말뭉치 채점 없음. 말뭉치 포함 출력은 T31의 `phdq_prob/phdq_prob/outputs/a1d/a3g_pop_v1/`로 옮겼다(별도 SHA-256 manifest 101개 전부 일치, 그 실행의 원격 사본만 삭제).
+
+### 21:00 · C-0~4 Kor-Learner dev 실험 고정 [gsm, itcerdo]
+
+- 작업: HNC는 `learner_JJ_Ml30` n-best 8; KoBART는 개별 Learner `dropout_seed0`, epoch 3(종전 dev GLEU로 선택), 재학습 없음. 원격 옛 가중치 경로는 정리되어 없음 → T31 `bart/itcerdo-20261125`에서 해당 가중치·토크나이저·설정과 해당 dev 1-best만 prob의 git 제외 경로로 전송. 체크포인트 SHA-256 `8b42ea50e717b538e4fb6d24c84e37f586cf57562159db7eefe0fada04b7ba26` 일치. Lightning `weights_only=True`와 키 전수 확인. 원본 dev 4,264쌍 전부 보관된 source/reference와 공백 정규화 후 일치, 단일 M² 주석 스트림.
+- 비교 계획(결과 보기 전): KoBART 보관 1-best를 포함하고 beam 8에서 서로 다른 표층을 최대 8개까지 채운다. HNC/KoBART/합집합의 정답 문장·정답 편집 포괄 및 M² 오라클을 따로 본다. 모든 합집합 후보를 같은 외부 편집 정렬 채널과 문장 전체 LM으로 채점한다. Learner B의 사전확률 가중치 고정(n-gram 0.5 + 인과 LM 1, PCFG·마스크 LM 0); λ₄=0 대 {0,.25,.5,1,2,4,8}에서 dev 선택 부분만으로 고른 λ₄(동점이면 작은 값). 모든 후보에 같은 teacher-forcing 조건부 로그확률(EOS 포함, 빔 길이 정규화 점수 아님)을 준다. 후보원·gold는 점수 특성이 아니다.
+- 평가: A-3g와 같은 교정문 해시 선택/확인 분할. 참 양성뿐 아니라 KoBART 1-best와 최종 출력의 **모든 변경 구간**에 대해 학습된 경로·백오프·미분류를 구분하고, 확인 부분 KoBART 편집에서 무작위 맹검 표본을 만든다. 사람이 판정하기 전 설명 정확도를 주장하지 않는다. test 미사용.
