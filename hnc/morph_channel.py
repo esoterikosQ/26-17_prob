@@ -269,18 +269,22 @@ class MorphChannel:
         from collections import Counter, defaultdict
         n_sub, n_sub_z, n_del, n_del_lt, n_ins = Counter(), defaultdict(Counter), Counter(), Counter(), Counter()
         for r in regions:
-            for e in r["edits"]:
+            # EM(A-3f): 구간에 형태소 경로 사후확률 p_morph가 있으면 그 가설의 편집을 p_morph로 센다.
+            w = r.get("p_morph")
+            es = (r.get("edits_raw") or r["edits"]) if w is not None else r["edits"]
+            w = 1.0 if w is None else w
+            for e in es:
                 z = e["z"]
                 m = tuple(e["m"]) if e["m"] else None
                 m2 = tuple(e["m2"]) if e["m2"] else None
                 if z in SUB_Z:
-                    n_sub[(m, m2)] += 1
-                    n_sub_z[(m, m2)][z] += 1
+                    n_sub[(m, m2)] += w
+                    n_sub_z[(m, m2)][z] += w
                 elif z == "DEL":
-                    n_del[m] += 1
-                    n_del_lt[(m, e["lt"])] += 1
+                    n_del[m] += w
+                    n_del_lt[(m, e["lt"])] += w
                 elif z == "INS":
-                    n_ins[(m2, e["lt"])] += 1
+                    n_ins[(m2, e["lt"])] += w
         n_tag = Counter()
         for (f, t), n in uni.items():
             n_tag[t] += n

@@ -31,21 +31,27 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sets", default="korean_learner,lang8")
     ap.add_argument("--chunk", type=int, default=20000)
+    ap.add_argument("--em", action="store_true", help="regions_em.jsonl의 사후확률로 판정(p_morph < 0.5이면 자모 경로; A-3f)")
     args = ap.parse_args()
     ana = MorphAnalyzer()
+    suffix = "jamo_em" if args.em else "jamo"
     for name in args.sets.split(","):
         zs = defaultdict(list)
-        with open(f"datasets/morph/{name}_train/regions.jsonl", encoding="utf-8") as f:
+        rf = "regions_em.jsonl" if args.em else "regions.jsonl"
+        with open(f"datasets/morph/{name}_train/{rf}", encoding="utf-8") as f:
             for line in f:
                 r = json.loads(line)
-                zs[r["unit"]].append((r["y_seg"], r["x_seg"], r["z"]))
+                z = r["z"]
+                if args.em and r.get("p_morph") is not None:
+                    z = "MORPH" if r["p_morph"] >= 0.5 else "SPELL"
+                zs[r["unit"]].append((r["y_seg"], r["x_seg"], z))
         if name == "ec2":
             from scripts.extract_morph_edits import load_records
             recs = load_records("ec2", "train", 0, 0)
-            out = Path("datasets/ec/ec2_jamo_train.jsonl")
+            out = Path(f"datasets/ec/ec2_{suffix}_train.jsonl")
         else:
             recs = [json.loads(line) for line in open(f"datasets/kor_gec/{name}_train.jsonl", encoding="utf-8")]
-            out = Path(f"datasets/kor_gec/{name}_jamo_train.jsonl")
+            out = Path(f"datasets/kor_gec/{name}_{suffix}_train.jsonl")
         recs = [r for r in recs if r["x"].strip() and r["y"].strip()]
         stat = Counter()
         with open(out, "w", encoding="utf-8") as fo:

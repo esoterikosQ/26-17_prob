@@ -43,6 +43,8 @@ SOURCES = {
     "lang8J": (Path("datasets/kor_gec/lang8_jamo_train.jsonl"), lambda r: True),
     "ec2J": (Path("datasets/ec/ec2_jamo_train.jsonl"), lambda r: True),
     "nativeJ": (Path("datasets/kor_gec/native_jamo_train.jsonl"), lambda r: True),
+    "learnerJE": (Path("datasets/kor_gec/korean_learner_jamo_em_train.jsonl"), lambda r: True),
+    "lang8JE": (Path("datasets/kor_gec/lang8_jamo_em_train.jsonl"), lambda r: True),
     "ec2dev": (Path("datasets/ec/dev.jsonl"), lambda r: r["keyboard"] == "2벌식(쿼티)"),
     "nativedev": (Path("datasets/kor_gec/native_dev.jsonl"), lambda r: True),
 }

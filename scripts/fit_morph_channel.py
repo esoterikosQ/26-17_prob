@@ -26,11 +26,12 @@ def main() -> None:
     ap.add_argument("--beta", type=float, default=5.0)
     ap.add_argument("--min-count", type=int, default=2)
     ap.add_argument("--max-alt", type=int, default=20)
+    ap.add_argument("--regions-file", default="regions.jsonl", help="regions_em.jsonl이면 EM 사후확률 가중(A-3f)")
     args = ap.parse_args()
     regions, uni, bi = [], Counter(), Counter()
     for s in args.sets.split(","):
         d = Path("datasets/morph") / f"{s}_{args.split}"
-        with open(d / "regions.jsonl", encoding="utf-8") as f:
+        with open(d / args.regions_file, encoding="utf-8") as f:
             regions.extend(json.loads(line) for line in f)
         mc = json.loads((d / "morph_counts.json").read_text(encoding="utf-8"))
         for f_, t, n in mc["uni"]:
