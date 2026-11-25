@@ -661,3 +661,24 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 
 - 작업: 앞의 혼합 격자와 분리한다. 학습자 기존 기준(ρ=1, λ_M=1, λ_LM=1)에 어절당 어휘 대치 최대 2개를 *추가*한다. 양쪽 모두 일반명사(NNG) 또는 모두 동사(VV), 학습 LEXICAL 사건 ≥5회만. 고유명사·VARIANT·내용어 삽입/삭제는 제안하지 않는다. 기존 조사·어미 30자리는 줄이지 않는다.
 - 명령·결과: `datasets/morph_channel/learner/params.json`의 조건 충족 항목을 itcerdo에서 집계: 명사 137쌍, 동사 195쌍. 임곗값을 dev에 맞춰 바꾸지 않고 Kor-Learner에서 전체 M² F0.5, NOUN·VERB 재현율과 변경 출력 수를 대조하기로 함.
+
+### 20:13–20:39 · A-3g·h dev 선택/확인 및 기록 보관 [itcerdo, gsm]
+
+- 작업: `prob-a3g-pop-v1`(커밋 `18e3d61`)을 끝낸 뒤 `prob-a3h-lex-v1`(`2976819`) 실행. Kor-*는 공백 정규화한 교정문, EC는 문서 ID의 SHA-256으로 dev를 묶어 분할했다(`hnc-pop-v1:`). M² 원문 순서와 문장 수를 확인했다. 채널 설정만 바꾸고 형태소 LM은 고정했다. 이전에 dev 전체로 개발했기 때문에 확인 부분도 완전히 새로운 시험 자료는 아니다.
+- 명령(itcerdo):
+  ```bash
+  python scripts/population_dev.py --tag a3g_pop_v1 --workers 12
+  python scripts/population_dev.py --tag a3g_pop_v1 --lexical-probe --workers 12
+  ```
+- 결과(신경 LM 재채점 전 M² F0.5):
+
+| 자료 | 선택 / 확인 문장 | 선택에서 고른 (ρ, λ_M) | 확인: 기존 → 선택 | dev 전체: 기존 → 선택 |
+|---|---:|---|---|---|
+| Kor-Learner | 2,131 / 2,133 | (1, 1), 기존 학습자 | .3500 → .3500 | .3515 → .3515 |
+| Kor-Native | 1,398 / 1,236 | (0, 0), 기존 모어 EM | .7305 → .7305 | .7337 → .7337 |
+| EC 2벌식 | 2,727 / 2,273 | (0, 0), 모어 EM; 기존은 BM | .5181 → .5069 | .5180 → .5082 |
+
+  - 선택에서 학습자 자모 100%일 때 λ_M=0/.1/1/3은 F0.5 .2425/.3257/.3531/.3462. Native의 모어 자모 100%에서는 .7364/.7018/.6621/.6118. EC의 기존 BM은 선택에서도 .5179로 격자 최고 .5093보다 높았다. 세 자료 모두 중간 혼합을 기본값으로 채택할 근거가 없다.
+  - Native의 **train 정답 미중복 866문장 .6467**, 그중 확인에 든 406문장은 .6238. 세 자료의 기존 설정 출력은 종전 가설 파일과 바이트 일치(cmp/SHA-256).
+  - A-3h: 학습자 확인 2,133문장 중 97개 출력이 달라짐. NOUN 재현율 .1722 → .1745, VERB .0818 → .1000. 전체 P .4059 → .4024, R .2256 → .2263, F0.5 .3500 → .3482. dev 전체에서도 203/4,264개가 바뀌고 F0.5 .3515 → .3501. 기본 후보에 추가하지 않는다.
+  - 검증: Pylance MCP가 시간 초과라 편집기 정적 진단은 확인하지 못했다. 원격 `python -m compileall -q hnc scripts tests`, `python -m pytest -q -p no:cacheprovider tests` **117 passed**. 두 tmux 종료 코드 0; test 말뭉치 채점 없음. 말뭉치 포함 출력은 T31의 `phdq_prob/phdq_prob/outputs/a1d/a3g_pop_v1/`로 옮겼다(별도 SHA-256 manifest 101개 전부 일치, 그 실행의 원격 사본만 삭제).
