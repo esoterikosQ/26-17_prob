@@ -60,7 +60,7 @@ class DecoderConfig:
     lam_ch: float = 1.0
     lam_len: float = 0.0
     merge_spans: bool = True
-    morph_max_cands: int = 12     # 어절당 형태소 편집 후보 수(편집 1개)
+    morph_max_cands: int = 30     # 어절당 형태소 편집 후보 수(편집 1개; 사건 빈도순)
     morph_two_edits: bool = False  # 상위 형태소 후보에 편집 하나를 더(어절당 2개)
     morph_combine: int = 0        # 형태소 편집을 얹을 자모 후보 수(오타 + 조사 오류가 한 어절에 겹친 경우)
 

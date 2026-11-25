@@ -102,6 +102,9 @@ def main() -> None:
     ap.add_argument("--vocab", type=Path, default=Path("datasets/vocab/eojeol_freq.tsv"))
     ap.add_argument("--vocab-min", type=int, default=5)
     ap.add_argument("--morph-channel", type=Path, default=None, help="A-3 형태소 채널 디렉토리(params.json)")
+    ap.add_argument("--morph-max-cands", type=int, default=30, help="어절당 형태소 편집 후보 수")
+    ap.add_argument("--morph-two-edits", action="store_true", help="어절당 형태소 편집 2개")
+    ap.add_argument("--morph-combine", type=int, default=0, help="형태소 편집을 얹을 자모 후보 수")
     ap.add_argument("--lam-lm", default="0.5,1,2")
     ap.add_argument("--lam-len", default="0,2")
     ap.add_argument("--beam", type=int, default=8)
@@ -117,7 +120,7 @@ def main() -> None:
     others = json.loads((args.channel / "other_symbols.json").read_text(encoding="utf-8"))
     channel = JamoChannel(params, others)
     vocab = load_vocab(args.vocab, args.vocab_min)
-    base = DecoderConfig(beam=args.beam, k_cand=args.k_cand)
+    base = DecoderConfig(beam=args.beam, k_cand=args.k_cand, morph_max_cands=args.morph_max_cands, morph_two_edits=args.morph_two_edits, morph_combine=args.morph_combine)
     mc = MorphChannel.from_json((args.morph_channel / "params.json").read_text(encoding="utf-8")) if args.morph_channel else None
     _DEC = Decoder(CandidateGenerator(params, vocab, channel, base), load_lm(args.lm, args.lm_weights), MorphAnalyzer(), base,
                    morph_channel=mc)
