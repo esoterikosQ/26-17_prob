@@ -95,6 +95,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=0, help="앞에서부터 n문장(0=전체)")
     ap.add_argument("--records", type=Path, default=None, help="입력 레코드(jsonl, x 필드); 주면 --set/--split 대신")
     ap.add_argument("--gold-m2", type=Path, default=None, help="--records와 함께 쓸 정답 M²")
+    ap.add_argument("--type-eval", default="", help="유형별 재현율을 볼 KAGAS 유형(쉼표, 예: PARTICLE,ENDING)")
     ap.add_argument("--lm", default="datasets/lm/v1/lm5.bin", help="LM 경로; 쉼표로 여럿이면 선형 보간")
     ap.add_argument("--lm-weights", default=None, help="보간 가중치(쉼표, --lm 순서)")
     ap.add_argument("--channel", type=Path, default=Path("datasets/channel/ec2_native"))
@@ -135,6 +136,9 @@ def main() -> None:
         xs, gold_all = xs[:args.n], gold_all[:args.n]
     write_m2(gold_all, out / "gold_all.m2")
     write_m2(gold_all, out / "gold_a1.m2", A1_TYPES)
+    types = [t for t in args.type_eval.split(",") if t]
+    for t in types:
+        write_m2(gold_all, out / f"gold_{t}.m2", {t})
 
     t0 = time.time()
     with mp.get_context("fork").Pool(args.workers) as pool:
@@ -149,7 +153,9 @@ def main() -> None:
         hyp.write_text("\n".join(r[1][k] for r in res) + "\n", encoding="utf-8")
         changed = sum(r[1][k] != " ".join(x.split()) for r, x in zip(res, xs))
         rows.append({"lam_lm": cfg.lam_lm, "lam_len": cfg.lam_len, "changed": changed,
-                     "all": m2score(hyp, out / "gold_all.m2"), "a1": m2score(hyp, out / "gold_a1.m2")})
+                     "all": m2score(hyp, out / "gold_all.m2"), "a1": m2score(hyp, out / "gold_a1.m2"),
+                     # 유형별: 그 유형만 남긴 정답에 대한 재현율(정밀도는 다른 유형 교정이 오탐으로 잡혀 의미 없음)
+                     **{f"R_{t}": m2score(hyp, out / f"gold_{t}.m2")["R"] for t in types}})
     summary = {"set": args.set, "split": args.split, "sents": len(xs), "decode_wall_sec": round(wall, 1),
                "sec_per_sent_mean": round(sum(secs) / len(secs), 3), "sec_per_sent_max": round(max(secs), 2),
                "results": rows}
