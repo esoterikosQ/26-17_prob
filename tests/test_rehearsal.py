@@ -3,6 +3,7 @@ import json
 import pytest
 
 from scripts import rehearsal_seal as seal
+from scripts import rehearsal_score as score
 from scripts.rehearsal_predict import require_source, systems
 
 
@@ -43,3 +44,23 @@ def test_promoting_may_only_add_new_decisions():
     seal.unchanged_decisions([partial], [full])
     with pytest.raises(ValueError, match="sealed decision"):
         seal.unchanged_decisions([partial], [{**full, "predictions": {"r9": "밤", "r1": "밤"}}])
+
+
+def test_grade_never_opens_gold_before_full_seal(monkeypatch):
+    def reject(root, partial):
+        assert partial is False
+        raise ValueError("full seal required")
+    monkeypatch.setattr(score, "check_seal", reject)
+    monkeypatch.setattr(score, "gold_path", lambda d: pytest.fail("gold opened"))
+    with pytest.raises(ValueError, match="full seal required"):
+        score.open_dev("lang8")
+
+
+def test_grade_compares_occurrences_not_just_the_normalized_sentence():
+    x = "두  송이"
+    p = {"i": 1, "unit_id": "lang8:dev:1", "x": x, "predictions": dict.fromkeys(systems("lang8", False), x)}
+    r = {"i": 1, "unit_id": "original-corpus-id", "x": "두 송이", "y": "세 송이"}
+    score.validate_join("lang8", 1, p, r, ["S 두 송이"], r["y"])
+    for changed in ({"i": 0}, {"x": "다른 원문"}, {"y": "다른 참조"}):
+        with pytest.raises(ValueError):
+            score.validate_join("lang8", 1, p, {**r, **changed}, ["S 두 송이"], r["y"])
