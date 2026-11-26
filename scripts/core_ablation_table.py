@@ -1,4 +1,4 @@
-"""Collect §6.2 from existing dev predictions. No fitting, decoding, tuning, or test inputs."""
+"""Historical §6.2 snapshot before rows 1/3; core_ablation_controls.py completes that table."""
 
 from __future__ import annotations
 
