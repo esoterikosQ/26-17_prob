@@ -964,3 +964,10 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 동결 KAGAS로 개발 `원문→실제 예측`의 독립 유형 부착. 동일한 쌍만 계산을 공유하고 발생 횟수·시스템별 분모는 모두 보존했다.
 - 명령: `scripts/rehearsal_aux.py kagas <domain>`; 실패한 정확한 한 쌍을 수정하지 않은 `parallel_to_m2_korean.py`에 단독 입력해 재현.
 - 결과: Learner 59,696/59,696, Lang8 65,736/65,736 문장×시스템 완료. Union은 43,252개 서로 다른 쌍 중 30,146개 처리 후 종료 1. 원문 1어절에 예측 0어절인 한 쌍(Union dev 0기준 순번 15,786, S8·10·11행)이었다. 단독 실행도 POS 토큰이 없는 리스트에 접근하며 `IndexError`로 종료 1. 세 조건 모두 공식 M²/GLEU에는 이미 포함되어 있다. 모델·평가기·봉인 출력·분할을 고치지 않으며, 실패한 시스템/분할의 KAGAS 점수는 한 문장이라도 누락되면 전체를 NA로 둔다. 다른 문장·분할의 점수를 대용하지 않는다.
+
+### 17:41–17:49 · 개발 예행 판정 및 비공개 증거 보관 [gsm/itcerdo]
+
+- 작업: Union 실패 전 접두 출력·입력·로그를 해시로 고정하고 해당 한 쌍의 예외를 같은 도구에서 다시 확인했다. 같은 봉인 예측의 나머지 쌍은 정상 경로로 주석했다. [전체 판정 집계](./scripts/rehearsal_score.py)는 각 보조 결과가 같은 봉인 및 같은 문장·시스템 분모에 속하는지 확인한다.
+- 명령: `scripts/rehearsal_aux.py kagas union --resume-empty`(알려진 미지원 명시: 종료 3), `scripts/rehearsal_score.py summary`; `pytest -q tests/test_rehearsal.py tests/test_c_strong_dev.py` **14개 통과**. 자원 지문 재검사 52개(동결 30, 신경 모델 21, 재구성 문법 1).
+- 결과: **M²/GLEU 76/76개 시스템×분할 조합 검증**. 편집 유형 KAGAS는 **70/76개 조합**이 완전하다. Union 93,328번 출현 중 93,325번 주석했고, 전체 세 자료 합계 218,757/218,760이다(Union은 전이 자료로 별도 집계하며 독립 표본 수가 아니다). Union 전체 및 그 안의 Lang8 출처 전체에서 각각 10행·11행·S8 대조의 유형별 P/R/F가 **NA**이다. **독립 Lang8 모델, Union 빔4 기준선, Union 확인 분할은 누락 없음.** 시험과 실제 검수 답안·키는 열지 않았다.
+- 보관: `/Volumes/T31/phdq_prob/phdq_prob/outputs/final_rehearsal_v1/scores/readiness.json`에 집계, 같은 실험 디렉토리의 `MANIFEST.sha256`에 새 증거 101개(지문 `f7c717c7f5dc960ed7419eb89b63686715efd37d1a983b0e37a95b4922c37264`). T31에서 전부 일치하고 원래 비교 입력 16개도 각각의 보관본과 일치한 뒤, itcerdo의 **이 실행 디렉토리만** 정리했다. 파생 문법은 itcerdo `data/models/pcfg_best.pkl`에 유지하고 T31에 사본을 보관했다. 복구 시 임시 압축·해제본 등 3.44 GB는 검증 후 삭제했다. [계획](./plan.md) 맨 마지막 §5는 그대로 유지한다.
