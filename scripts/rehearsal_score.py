@@ -200,11 +200,67 @@ def metrics(d, seal, ps, recs, blocks):
     print(f"{d}: official M2 verified in {len(report)} partitions", flush=True)
 
 
+def readiness():
+    seal = check_seal(WORK, False)
+    require_parity(seal)
+    files, domains, missing_total = {}, {}, 0
+    for d, (n, _, _, _) in CONFIG.items():
+        reports = {}
+        for marker in ("parity", "m2", "gleu", "kagas"):
+            p = RESULT/f"{marker}.{d}.json"
+            reports[marker] = read(p)
+            if reports[marker]["domain"] != d or reports[marker]["seal"] != seal:
+                raise ValueError(f"{d}: mismatched {marker} receipt")
+            files[p.name] = sha(p)
+        parity, m2, gleu, kagas = (reports[k] for k in ("parity", "m2", "gleu", "kagas"))
+        if parity["beam4_equal"] != n or m2["official_cli_verified"] is not True:
+            raise ValueError(f"{d}: unverified primary score or baseline")
+        cells = 0
+        missing = {}
+        mp, gp, kp = (r["partitions"] for r in (m2, gleu, kagas))
+        if not mp.keys() == gp.keys() == kp.keys():
+            raise ValueError(f"{d}: missing auxiliary partition")
+        for part, row in mp.items():
+            gr, kr = gp[part], kp[part]
+            names = systems(d, False)
+            if (not row["n"] == gr["n"] == kr["n"]
+                    or not names == row["metrics"].keys() == gr["gleu_x100"].keys() == kr["typed"].keys()):
+                raise ValueError(f"{d}/{part}: incomplete metric matrix")
+            absent = {k for k, values in kr["typed"].items() if values is None}
+            if absent != set(kr.get("unavailable", {})):
+                raise ValueError(f"{d}/{part}: unexplained missing typed metric")
+            if absent:
+                missing[part] = kr["unavailable"]
+            cells += len(names)
+            missing_total += len(absent)
+        unavailable = sum(map(len, missing.get("all_dev", {}).values()))
+        if (mp["all_dev"]["n"] != n or kagas["sentences"] != n
+                or kagas["evaluated_occurrences"] + unavailable != n*len(systems(d, False))):
+            raise ValueError(f"{d}: inconsistent full-dev occurrence denominator")
+        domains[d] = {"n": n, "beam4_equal": parity["beam4_equal"], "H8_hypotheses": parity["h_candidates"],
+                      "systems": parity["systems"], "verified_m2_and_gleu_cells": cells,
+                      "kagas_evaluated_occurrences": kagas["evaluated_occurrences"],
+                      "kagas_required_occurrences": n*len(systems(d, False)), "unavailable_typed_cells": missing}
+    save(RESULT/"readiness.json", {"split": "dev", "full_seal": seal, "partial_seal": check_seal(WORK, True),
+         "report_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+         "pcfg": read(WORK/"korean_learner/pcfg.verified.json"), "domains": domains, "report_sha256": files,
+         "unavailable_typed_cells": missing_total, "all_registered_metrics_available": missing_total == 0,
+         "authorizes_test_or_unblinding": False})
+    print(f"Dev rehearsal recorded: {missing_total} typed cells unavailable; no test or unblinding authorization")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("stage", choices=("parity", "m2"))
-    parser.add_argument("domain", choices=CONFIG)
+    parser.add_argument("stage", choices=("parity", "m2", "summary"))
+    parser.add_argument("domain", choices=CONFIG, nargs="?")
     args = parser.parse_args()
+    if args.stage == "summary":
+        if args.domain is not None:
+            parser.error("summary covers all domains")
+        readiness()
+        sys.exit(0)
+    if args.domain is None:
+        parser.error("parity and m2 require a development domain")
     seal, ps, recs, blocks = open_dev(args.domain)
     RESULT.mkdir(exist_ok=True)
     if args.stage == "parity":
