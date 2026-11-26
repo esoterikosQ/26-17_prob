@@ -749,3 +749,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - Union의 제한 진단: Lang8 출처 48.64→39.73, Learner 52.53→52.07, Native 84.28→76.71. 전체는 각 부분 점수의 단순 평균이 아니라 편집 수로 계산한 micro 값이다. Learner에서 제한 진단과 정식 C의 향상 방향이 반대이므로, 이 결과로 다른 두 자료의 정식 C가 하락한다고 결론 내릴 수 없다.
 - 보관: T31 `phdq_prob/phdq_prob/outputs/c_gec2_dev_v1`의 32개 파일 SHA-256 전수 일치(목록 해시 `adc679f2786adc945cab4787b6727d426e0c546e43f9f1b3d4b4f2ded74c7687`). 로컬 bsdtar의 `--skip-old-files` 미지원으로 첫 증분 전송이 실패했으며, 빠진 파일만 명시해 전송 후 전체를 검증했다. 검증한 원격 중간 산출물 9개만 정리했다. 후속 dev 입력·HNC 빔·Learner 가중치는 유지. 원격 126개 테스트 통과, 프로젝트 tmux 잔여 없음. 검수표·키·최종 시험셋 미사용.
 - 다음: `outputs2/kobart-base-v1/{lang8,union}/lr5e-5_seed0/ckpt/best`의 정상 복원과 해시 확인 뒤 `bash scripts/run_c_strong_dev.sh lang8 union`. 검수를 기다리는 단계가 아니다.
+
+### 09:06 · Lang8·Union 정식 C 재개 [gsm/itcerdo, KST]
+
+- 작업: 기존 `gec2` seed 0의 두 체크포인트만 지정된 백업에서 복원한다. 강한 기준선의 보관 1위, 같은 고정 채점기의 신경 8-best, HNC 포함 8+8을 비교한다. 제한 진단 파일은 덮어쓰지 않는다.
+- 명령·준비: 이전 증거 목록과 대조해 두 자료의 `records.jsonl`, `recipe.json`, `baseline.json` 및 공용 HNC 빔 2개의 SHA-256이 일치했다. 원격 RTX 5090과 실험 출력 경로는 비어 있다. 다운로드는 원래 권한의 백업 클라이언트 한 스트림만 사용하고, 백업 해시·기존 최고 epoch 및 dev GLEU 확인을 통과한 가중치만 평가 큐에 넘긴다.
+- 09:10 결과: 전송 시작 전 첫 Lang8 원본 해시 목록 요청에서 다시 **HTTP 403 `rateLimitExceeded`**(프로젝트 분당 한도, `Retry-After` 시각 미제공). 받은 목록은 0바이트, 새 가중치와 정식 C 점수는 없음. 복원 및 대기 평가 tmux는 오류를 기록하고 종료했다. 빈 임시 목록 외 다운로드는 없었고 임시 인증 설정은 제거됐다. T31의 BART 색인 및 알려진 동기화 경로에서도 이 두 후기 가중치는 확인되지 않았다. 별도 사본이나 백업 서비스 복구가 필요하다.
