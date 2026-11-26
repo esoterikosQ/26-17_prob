@@ -977,3 +977,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 사용자는 기존 v1로 시험을 **한 번** 실행하고 빈 출력으로 KAGAS가 실패하는 시스템·분할의 유형 지표를 NA로 보고하는 방식을 승인했다. 사람 검수·답안·대조 키는 이번 범위에서 제외했다.
 - 명령: 시험 참조를 열지 않고 원자료 파일 목록과 개발 영수증을 확인; `sha256sum --strict -c evaluation/final_v1.sha256`, 세 KoBART 복원 목록과 v3 문법 지문 대조.
 - 결정: 시험 출력 전부를 봉인한 뒤에만 정답/M²를 결합한다. 별도 연구인 저자원 비교는 같은 Kor-Learner train의 중첩 10/25/50/100%를 A/B/KoBART에 주며 표본 밖 GEC 교정쌍으로 학습한 자원은 쓰지 않는다. 시험에 재튜닝하지 않고 §5 Learner 해석은 주 평가 이후 **보관된 dev**만으로 진행한다.
+
+### 19:04 · 독립 시험 원문 예측 시작·저자원 대비 조건 고정 [gsm/itcerdo]
+
+- 작업: 실행기 `74ac46c`가 동결 dev의 세 예측/감사 파일 SHA를 다시 재현했다. 허가된 배포본의 원문 전용 파일 4,265/16,434/23,333행, Union의 원문 순서(Lang8+Learner+Native)를 전수 검증했다. 원문 외 열·과거 시험 예측은 입력하지 않았다.
+- 명령: `pytest -q tests/test_final_test.py tests/test_rehearsal.py tests/test_c_strong_dev.py`(17개 통과); `final_test.py dev-gate`; 독점 실행표를 만든 뒤 tmux `hnc-final-test-v1`에서 `run_final_test.sh approved-v1`. 개발용과 다른 경로에 한 번만 쓴다.
+- 결정(저자원 결과 전): 예산 순위는 `SHA256(hnc-budget-v1:훈련ID)`, 한 번 정한 순서에서 10/25/50/100% 반올림. 각 예산의 교정문만으로 5-gram KenLM·어절 어휘를 다시 만들고, 같은 쌍으로 자모/형태소 채널을 추정한다(다른 GEC 자료의 통용변이 사전 없음). A=`G−채널+.3P`, B=같은 H8에 인과 LM 1 추가. KoBART는 각각 순수 사전학습 `3276dc8`에서 seed 0, AdamW 5e−5, batch 64, warmup .1+cosine, 10 epoch 고정·개발 성능으로 epoch 선택 없음, 빔 4. 평가표는 동일 Learner dev 확인 및 전체의 공식 M². 이 예산 100%는 과거 Lang8 등을 함께 쓴 운용 모델과 다른 통제 조건이다.
