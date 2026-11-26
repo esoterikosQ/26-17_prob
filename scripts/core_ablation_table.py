@@ -103,7 +103,7 @@ def collect():
     path = a / off["hyp"]
     selected["jamo_only"] = (2, (1., 0., 0., 0.), path, lines(path), off["all"])
     for f in (*cache, H / "summary_nlm.json", H / "summary.json", on, a / "summary.json",
-              a / "source.txt", gold_path(learner)):
+              a / "source.txt", GROUP / "comparison.json", gold_path(learner)):
         hashes[str(f)] = digest(f)
     legacy = OUT / "input/legacy/evaluation.json"
     older = read(legacy)
@@ -122,8 +122,9 @@ def collect():
                     agree(score, read(GROUP / "comparison.json")["comparison"]["r1_m1"][part], "A-on")
                 if row == "B":
                     agree(score, older["metrics"][part]["frozen_B"], "frozen B")
+                weights = f"G={w[0]},P={w[1]},causal={w[2]},masked={w[3]},length=0"
                 add("main" if row != "B" else "control", row, variant, learner, part, len(ids),
-                    "J-beam8" if row == 2 else "H8", ",".join(map(str, w)), score, path)
+                    "J-beam8" if row == 2 else "H8", weights, score, path)
             for row, variant, reason in ((1, "prior_only", "No archived A prior-only prediction; C without channel retains s2s."),
                                          (3, "morph_only", "No archived J-off/M-on prediction; M-off is row 2.")):
                 add("main", row, variant, learner, part, len(ids), "", "", None, key=reason)
@@ -154,11 +155,13 @@ def collect():
                 agree(v, Counts(v["correct"], v["proposed"], ngold).metrics(), name)
                 panel = "control" if row == "S" else ("main" if domain == learner else "transfer")
                 add(panel, row, name, domain, part, len(ids), pool, w, v, p / "fixed.json", f"metrics.{part}.{name}")
-                if domain == learner and row != "S":
-                    k = {"archived": "kobart", "union_no_s2s": "union_no_s2s", "union_fixed": "union_selected"}[name]
+                if domain == learner:
+                    k = {"archived": "kobart", "union_no_s2s": "union_no_s2s", "union_fixed": "union_selected",
+                         "s_fixed": "s_selected"}[name]
                     if older["lambda4"] != .5 or part not in older["reference_metric_verified"]:
                         raise ValueError("unverified legacy C result")
-                    add("legacy", row, k, domain, part, len(ids), pool, w, older["metrics"][part][k], legacy,
+                    add("legacy_control" if row == "S" else "legacy", row, k, domain, part, len(ids), pool, w,
+                        older["metrics"][part][k], legacy,
                         f"metrics.{part}.{k}")
     for d, ref in (("native", "r0_m0"), ("ec2", "bm")):
         path = OUT / "input/a3g" / d / "comparison.json"
@@ -176,7 +179,9 @@ def collect():
     with (OUT / "ablation.csv").open("x", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(table[0]))
         writer.writeheader()
-        writer.writerows(table)
+        panels = ("main", "control", "transfer", "legacy", "legacy_control", "domain_reference")
+        writer.writerows(sorted(table, key=lambda r: (panels.index(r["panel"]), r["domain"], r["partition"],
+                                                      r["row"] if isinstance(r["row"], int) else 12, r["variant"])))
     with (OUT / "source_hashes.json").open("x", encoding="utf-8") as f:
         json.dump(hashes, f, indent=1, sort_keys=True)
     print(f"{len(table)} evidence/gap records; all stored Learner A/B winners and official M² controls verified.")
