@@ -764,3 +764,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 진행 중인 브라우저 다운로드와 별개로, 다른 작업이 같은 가중치를 잡고 있는지와 이전 403의 할당량 범위를 확인했다.
 - 명령: 현재 계정의 `rclone` 프로세스 수, 이 실험의 복원·평가 tmux와 작업 중인 에이전트를 확인했다. 이전 오류의 프로젝트 번호를 rclone 공식 Drive 백엔드의 공개 기본 OAuth 프로젝트 번호와 대조했다.
 - 결과: gsm·itcerdo 각각 `rclone` 0개, 해당 tmux 0개, 같은 작업공간에서 별도로 실행 중인 에이전트 없음. 오류는 `defaultPerMinutePerProject`이고 번호도 공유 기본 프로젝트와 일치한다. 할당량을 소비한 개별 사용자나 프로세스는 이 로그로 식별할 수 없다. 11:28 itcerdo의 인증 없는 Drive API 연결은 HTTP 200. 현재 프로젝트 안에는 인증 클라이언트가 없어 **이번에는 비공개 파일 목록 조회를 재현하지 못했다**(마지막 인증 조회는 10:52:57의 403). 중복 다운로드·자동 재시도 없음.
+
+### 11:54–11:56 · itcerdo 프로젝트 전용 rclone 준비 [gsm/itcerdo, KST]
+
+- 작업: 새 Drive 연결을 사용자가 직접 설정할 수 있게 클라이언트 실행 파일만 준비한다. 인증 설정 변경·Drive API 호출·가중치 다운로드는 하지 않는다.
+- 명령·준비: 원격 `uname -sm`은 Linux x86_64, `tools/rclone/rclone`은 없었고 대상 경로는 git 제외다. 공식 배포처의 현재 안정판은 `v1.76.0`; 서명된 `SHA256SUMS`와 `linux-amd64` ZIP을 대조한 후 해당 실행 파일만 설치한다.
+- 결과: 공식 공개키 지문과 일치하는 GPG 서명 검증 및 ZIP SHA-256 검증 통과. `./tools/rclone/rclone version` → `rclone v1.76.0`, `linux/amd64`. itcerdo 프로젝트 안에만 설치했고 임시 ZIP과 키링은 제거했다. 다음 단계는 사용자의 전용 OAuth 클라이언트로 읽기 전용 연결을 설정하는 것이다.
