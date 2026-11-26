@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -99,16 +100,19 @@ def prepare(domain):
     save(out / "recipe.json", {"domain": domain, "n": len(records), "epoch": ep["epoch"], "val_gleu": ep["val_gleu"]})
 
 
-def scored_pools(out, recs, *, s1h8=False):
+def scored_pools(out, recs, *, s1h8=False, include: Callable[[dict], bool] | None = None):
     causal = {c["text"]: c["lp"] for c in rows(out / "causal.jsonl")}
     for rec, pool in zip(recs, rows(out / "features.jsonl"), strict=True):
         if (rec["i"], rec["unit_id"], rec["x"]) != (pool["i"], pool["unit_id"], pool["x"]):
             raise ValueError("feature identity mismatch")
+        if include is not None and not include(rec):
+            continue
         hyps = pool["hyps"]
         if [h["text"] for h in hyps if h["s"] == 0] != [rec["archived"]]:
             raise ValueError("baseline not found or ambiguous")
         for h in hyps:
-            h["prior"] = .5 * h["lm"] + causal[h["text"]]
+            h["causal"] = causal[h["text"]]
+            h["prior"] = .5 * h["lm"] + h["causal"]
             if not all(math.isfinite(h[k]) for k in (("prior", "ch") if s1h8 else ("prior", "ch", "s2s"))):
                 raise ValueError("non-finite transfer score")
         yield rec, hyps

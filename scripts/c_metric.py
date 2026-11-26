@@ -35,11 +35,12 @@ def annotations(block):
     return source, types, edits
 
 
-def per_candidate(text, source, gold):
+def aligned_edits(text, source, gold):
+    """Matched reference IDs and the reference-aware official M² edit sequence."""
     import levenshtein as lev  # tools/m2scorer/scripts, 기존에 허용·설치된 공식 구현
     a, b = source.split(), text.split()
     if a == b:
-        return {"text": text, "tp": [], "proposed": 0}
+        return [], []
     graphs = [lev.edit_graph(*lev.levenshtein_matrix(a, b, 1, 1, cost)) for cost in (1, 2)]
     v1, e1, d1, t1 = graphs[0]
     v2, e2, d2, t2 = graphs[1]
@@ -55,7 +56,12 @@ def per_candidate(text, source, gold):
         start = k + 1
     if len(indices) > len(predicted):
         raise ValueError("M² 일치 편집 수가 제안 수보다 많다")
-    return {"text": text, "tp": indices, "proposed": len(predicted)}
+    return indices, predicted
+
+
+def per_candidate(text, source, gold):
+    indices, edits = aligned_edits(text, source, gold)
+    return {"text": text, "tp": indices, "proposed": len(edits)}
 
 
 def stats(row, h):

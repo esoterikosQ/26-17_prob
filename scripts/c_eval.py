@@ -30,15 +30,16 @@ def jsonl(path):
         return [json.loads(l) for l in f]
 
 
+def candidate_score(h, w, s2s_only=False):
+    return h["s2s"] if s2s_only else h["prior"] - h["ch"] + w * h["s2s"]
+
+
 def pick(hyps, source, w, s2s_only=False):
     eligible = [j for j, h in enumerate(hyps) if source == "union" or h[source] is not None]
     if not eligible:
         raise ValueError(f"후보가 없는 출처: {source}")
 
-    def score(j):
-        h = hyps[j]
-        return h["s2s"] if s2s_only else h["prior"] - h["ch"] + w * h["s2s"]
-    return min(eligible, key=lambda j: (-score(j), hyps[j]["text"]))
+    return min(eligible, key=lambda j: (-candidate_score(hyps[j], w, s2s_only), hyps[j]["text"]))
 
 
 def lift_ci(rows, ids, recs, before, after):

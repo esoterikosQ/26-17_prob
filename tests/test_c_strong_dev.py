@@ -57,3 +57,51 @@ def test_edit_fates_distinguish_absence_missed_selection_and_same_type_swaps():
     assert fates["SPELL"]["neither"] == 1 and not fates["SPELL"]["covered_not_selected"]
     assert fates["WS"]["retained"] == 1
     assert fates["NOUN"]["gained"] == 1 and not fates["NOUN"]["gained_h_only"]
+
+
+def test_selection_diagnosis_uses_best_deletion_witness_and_whole_pool_ablation(monkeypatch):
+    from pathlib import Path
+    from scripts.c_edit_select import sentence
+    tool = Path("tools/m2scorer/scripts").resolve()
+    if not (tool / "levenshtein.py").is_file():
+        pytest.skip("M² scorer not installed")
+    monkeypatch.syspath_prepend(str(tool))
+    x = "오늘 정말 새가 난다"
+    rec = {"x": x, "i": 2, "unit_id": "ex", "component": "lang8"}
+    hs = [{"text": t, "s": s, "h": h, "ch": ch, "s2s": seq, "lm": lm, "causal": lp, "prior": .5*lm+lp}
+          for t, s, h, ch, seq, lm, lp in [
+              ("오늘 새가 잔다", 0, None, 6, -4, -4, -4), (x, None, 0, .2, -6, -4, -4),
+              ("오늘 새가 난다", 1, None, 4, -4, -4, -3), ("오늘 정말 새가 잔다", 2, None, 12, -2, -2, -1)]]
+    _, _, ds, ins = sentence((rec, hs, ["S " + x, "A 1 2|||DELETION|||-NONE-|||REQUIRED|||-NONE-|||0"]))
+    assert not ins
+    d, = ds
+    assert (d["state"], d["winner_action"], d["winner"], d["witness"], d["witness_rank"]) == (
+        "missed", "unchanged", 1, 2, 2)
+    assert (d["dominant"], d["s_hit"], d["without_channel"]) == ("channel", True, False)
+    assert d["total"] == pytest.approx(1.8) and d["isolated_total"] == d["total"]
+    assert (d["channel"], d["lm_prior"], d["seq"]) == pytest.approx((3.8, -1., -1.))
+
+
+def test_missed_insertion_separates_wrong_boundary_from_wrong_form():
+    from scripts.c_edit_select import insertion_case
+    x = "새가 난다"
+    hs = [{"text": "막 새가 난다", "s": 0, "h": None}, {"text": "새가 잘 난다", "s": None, "h": 0}]
+    ops = {0: [(0, 0, "", "막")], 1: [(1, 1, "", "잘")]}
+    case = insertion_case(x, 0, (1, 1, "", ["막"]), hs, {0: set(), 1: set()}, ops, 0)
+    assert (case["coverage"], case["s"], case["h"], case["union"]) == (
+        "neither", "no_boundary_insertion", "other_form", "other_form")
+    assert not case["already_in_x"] and case["in_s_surface"] and not case["in_h_surface"]
+    hs[1]["text"], ops[1] = "새가 막 난다", [(1, 1, "", "막")]
+    case = insertion_case(x, 0, (1, 1, "", ["막"]), hs, {0: set(), 1: {0}}, ops, 1)
+    assert case["selected"] and case["coverage"] == "h_only" and case["union"] == "hit"
+
+
+def test_split_filter_excludes_rows_before_feature_scoring(tmp_path):
+    from scripts.c_strong_dev import scored_pools
+    recs = [{"i": i, "unit_id": str(i), "x": "x", "archived": "x"} for i in range(2)]
+    good = {"text": "x", "s": 0, "h": None, "ch": 1, "lm": -2, "s2s": -3}
+    (tmp_path / "causal.jsonl").write_text(json.dumps({"text": "x", "lp": -4}) + "\n")
+    (tmp_path / "features.jsonl").write_text("".join(json.dumps({**r, "hyps": hs}) + "\n"
+                                                    for r, hs in zip(recs, ([], [good]), strict=True)))
+    [(rec, [hyp])] = list(scored_pools(tmp_path, recs, include=lambda r: r["i"] == 1))
+    assert rec["i"] == 1 and hyp["causal"] == -4 and hyp["prior"] == -5
