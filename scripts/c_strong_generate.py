@@ -87,7 +87,6 @@ def prefix_score(model, x, y):
     return summed
 
 
-@torch.inference_mode()
 def run(domain, smoke):
     data = ROOT / domain
     out = data / "smoke" if smoke else data
@@ -98,7 +97,14 @@ def run(domain, smoke):
         raise ValueError("input fingerprint mismatch")
     if smoke:
         recs = recs[:64]
-    hs = candidates(recs)
+    generate_pool(domain, out, recs, candidates(recs), recipe, archived=[r["archived"] for r in recs])
+
+
+@torch.inference_mode()
+def generate_pool(domain, out, recs, hs, recipe, *, archived=None):
+    """With no archived baseline, S[0] is the newly generated beam-4 decision."""
+    if not recs or len(recs) != len(hs) or (archived is not None and len(archived) != len(recs)):
+        raise ValueError("incomplete source/beam inputs")
     tok, model, hashes = verified_model(domain, recipe)
     wrap = tok("가")["input_ids"][-1] != tok.eos_token_id  # original gec2 Formatter
     xs = encode(tok, [r["x"] for r in recs], wrap)
@@ -115,19 +121,21 @@ def run(domain, smoke):
         with torch.autocast("cuda", dtype=torch.bfloat16):
             four = model.generate(**inputs([xs[i] for i in group]), num_beams=4, **opts)
             first = tok.batch_decode(four[:, 1:], skip_special_tokens=True)
-            for j, i in enumerate(group):
-                match += surface(first[j]) == recs[i]["archived"]
+            top = {i: surface(text) for i, text in zip(group, first, strict=True)}
+            if archived is not None:
+                match += sum(top[i] == archived[i] for i in group)
             for start in range(0, len(group), 16):
                 ids = group[start:start + 16]
                 eight = model.generate(**inputs([xs[i] for i in ids]), num_beams=8, num_return_sequences=8, **opts)
                 texts = tok.batch_decode(eight[:, 1:], skip_special_tokens=True)
                 for j, i in enumerate(ids):
-                    seq = list(dict.fromkeys([recs[i]["archived"], *map(surface, texts[8*j:8*j+8])]))[:8]
+                    baseline = top[i] if archived is None else archived[i]
+                    seq = list(dict.fromkeys([baseline, *map(surface, texts[8*j:8*j+8])]))[:8]
                     pools[i] = union_pool(hs[i], seq)
         if k % 1024 == 0:
             print(f"{domain} beam rows {min(k+64, len(order))}/{len(order)}", flush=True)
     rate = match / len(recs)
-    if rate < .95:
+    if archived is not None and rate < .95:
         raise ValueError(f"{domain}: regenerated beam-4 identity {match}/{len(recs)} below .95")
     probe = encode(tok, ["가 나"], wrap, target=True)[0]
     error = abs(prefix_score(model, xs[0], probe) - score_batch(model, [xs[0]], [probe])[0])
@@ -157,7 +165,9 @@ def run(domain, smoke):
                 f.write(json.dumps({"i": i, "unit_id": r["unit_id"], "x": r["x"], "hyps": hyps},
                                    ensure_ascii=False) + "\n")
     partial.rename(fn)
-    meta = {**recipe, "n": len(recs), "n_h": n_h, "n_s": n_s, "n_union": n_u, "beam4_match": match,
+    meta = {**recipe, "n": len(recs), "n_h": n_h, "n_s": n_s, "n_union": n_u,
+            "beam4_match": match if archived is not None else None,
+            "baseline_origin": "archived" if archived is not None else "fresh_beam4",
             "prefix_check_abs_error": error, "model_sha256": hashes["model.safetensors"], "wrap": wrap,
             "torch": torch.__version__, "transformers": __import__("transformers").__version__}
     with (out / "generation.json").open("x") as f:

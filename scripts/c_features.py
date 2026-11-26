@@ -13,11 +13,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-def causal(rows, out, batch):
+def causal(rows, out, batch, model_name="EleutherAI/polyglot-ko-1.3b"):
     import torch
     from scripts.nlm_score import causal_scores
     texts = sorted({h["text"] for r in rows for h in r["hyps"]})
-    vals = causal_scores(texts, "EleutherAI/polyglot-ko-1.3b", batch, "cuda", torch.bfloat16)
+    vals = causal_scores(texts, model_name, batch, "cuda", torch.bfloat16)
     with (out / "causal.jsonl").open("x", encoding="utf-8") as dest:
         for text, score in zip(texts, vals, strict=True):
             if not math.isfinite(score["lp"]):
