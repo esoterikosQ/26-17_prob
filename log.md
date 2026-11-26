@@ -758,3 +758,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 원본 위치 재확인: T31에 보관된 10월 25일 `upload_outputs2.log`에는 `kobart-base-v1/{lang8,union}/lr5e-5_seed0/ckpt/best/model.safetensors` 각각 `Copied` 기록이 1건씩 있다. 동시점의 `check_outputs2.log`는 609파일 일치·차이 0이다(오늘의 원격 존재 확인은 아님). itcerdo의 원래 `outputs2` 경로와 현재 실험의 복원 경로 모두 Lang8·Union은 없으며, 복원된 후기 Learner 가중치(495,589,768바이트)는 있다. T31 색인의 `dropout_seed0` Lang8·Union은 레거시 학습 가중치라 대체하지 않는다.
 - 09:36 KST 한도 상태: 동일한 인증으로 Lang8 가중치 이름만 `rclone lsf`로 한 번 조회했다. 다운로드 없이 `403 rateLimitExceeded`(분당 한도) 재현, 클라이언트 출력에 재시도 시각 없음. 자동 재시도는 켜지 않았다.
 - 10:52:57 KST 재확인: 같은 Lang8 파일 목록을 한 번 조회했지만 `403 rateLimitExceeded`(분당 한도). 응답에 재시도 시각은 표시되지 않았고, 가중치 다운로드와 자동 재시도는 시작하지 않았다.
+
+### 11:24–11:28 · 수동 다운로드 중 Drive 한도 원인 확인 [gsm/itcerdo, KST]
+
+- 작업: 진행 중인 브라우저 다운로드와 별개로, 다른 작업이 같은 가중치를 잡고 있는지와 이전 403의 할당량 범위를 확인했다.
+- 명령: 현재 계정의 `rclone` 프로세스 수, 이 실험의 복원·평가 tmux와 작업 중인 에이전트를 확인했다. 이전 오류의 프로젝트 번호를 rclone 공식 Drive 백엔드의 공개 기본 OAuth 프로젝트 번호와 대조했다.
+- 결과: gsm·itcerdo 각각 `rclone` 0개, 해당 tmux 0개, 같은 작업공간에서 별도로 실행 중인 에이전트 없음. 오류는 `defaultPerMinutePerProject`이고 번호도 공유 기본 프로젝트와 일치한다. 할당량을 소비한 개별 사용자나 프로세스는 이 로그로 식별할 수 없다. 11:28 itcerdo의 인증 없는 Drive API 연결은 HTTP 200. 현재 프로젝트 안에는 인증 클라이언트가 없어 **이번에는 비공개 파일 목록 조회를 재현하지 못했다**(마지막 인증 조회는 10:52:57의 403). 중복 다운로드·자동 재시도 없음.
