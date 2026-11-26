@@ -770,3 +770,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 새 Drive 연결을 사용자가 직접 설정할 수 있게 클라이언트 실행 파일만 준비한다. 인증 설정 변경·Drive API 호출·가중치 다운로드는 하지 않는다.
 - 명령·준비: 원격 `uname -sm`은 Linux x86_64, `tools/rclone/rclone`은 없었고 대상 경로는 git 제외다. 공식 배포처의 현재 안정판은 `v1.76.0`; 서명된 `SHA256SUMS`와 `linux-amd64` ZIP을 대조한 후 해당 실행 파일만 설치한다.
 - 결과: 공식 공개키 지문과 일치하는 GPG 서명 검증 및 ZIP SHA-256 검증 통과. `./tools/rclone/rclone version` → `rclone v1.76.0`, `linux/amd64`. itcerdo 프로젝트 안에만 설치했고 임시 ZIP과 키링은 제거했다. 다음 단계는 사용자의 전용 OAuth 클라이언트로 읽기 전용 연결을 설정하는 것이다.
+
+### 12:12 · 전용 Drive 연결로 Lang8·Union 가중치 복원 재개 [itcerdo/gsm, KST]
+
+- 작업: 사용자 설정 `gdrive_prob`로 두 `gec2` 개별 모델의 `lr5e-5_seed0/ckpt/best`만 복원한다. 기존 dev 확인 문장·HNC 빔·설정 지문을 재확인했다. 공개 저장소에 가중치 또는 인증 정보를 넣지 않는다.
+- 명령: 원격 tmux에서 프로젝트의 `rclone md5sum` → `rclone copy --checksum --immutable` → 파일별 MD5·SHA-256 및 원래 epoch/dev GLEU 대조. 각 모델의 검증이 끝난 뒤에만 `scripts/run_c_strong_dev.sh lang8 union`의 해당 단계를 실행한다. 수동 다운로드·검수표·시험셋은 별개다.
+- 12:16 결과: 새 전용 연결로 전송 종료 코드 0. Lang8·Union 각 7파일 전부 Drive MD5 일치, 로컬 SHA-256 재검산 일치. 두 `model.safetensors`는 각각 495,589,768바이트이며 `data/c_gec2_dev_v1/models/{lang8,union}/`에 유지한다. Lang8: epoch 3, dev GLEU 34.9182, 가중치 SHA-256 `3b538e81bca815de22ee0b97ad6f9ae1e60580e8353b330f24250146ab2558f4`; Union: epoch 8, 44.2453, `8b98934ca4ee7b9654fb1577a836ebde5ec90936ed7e41e1885c4eae3c3c847d`. Lang8 64문장 예비검사에서 원래 1위 64/64 일치 후 전체 dev 시작.
