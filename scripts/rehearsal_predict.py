@@ -12,7 +12,6 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from hnc.candidates_c import surface
 from scripts.c_eval import pick
 from scripts.core_ablation_controls import VOCAB, audit_morph_candidates, make_decoder, prior_rank
 from scripts.channel_options import load_channel
@@ -149,6 +148,8 @@ def neural_b(domain):
     m = masked_scores(texts, str(MASKED), 512, "cuda", torch.bfloat16)
     with (WORK/domain/"b_scores.jsonl").open("x", encoding="utf-8") as f:
         for text, a, b in zip(texts, c, m, strict=True):
+            if a is None:
+                raise ValueError("incomplete B causal scores")
             line(f, {"text": text, "causal": a["lp"], "masked": b["lp"]})
 
 
@@ -180,7 +181,7 @@ def choose(domain, partial):
                 hs = h["hyps"]
                 def best(g, p, nc, nm):
                     def score(c):
-                        v = g*c["lm"] - c["ch"] + p*c.get("pcfg", 0.) + (
+                        v = g*c["lm"] - c["ch"] + (p*c["pcfg"] if p else 0.) + (
                             nc*b[c["text"]]["causal"] + nm*b[c["text"]]["masked"])
                         if not math.isfinite(v):
                             raise ValueError("invalid H feature")

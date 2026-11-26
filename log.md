@@ -930,3 +930,11 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 
 - 작업: 시험·검수에는 접근하지 않고 원문 전용 예측 → 후보/출력 해시 봉인 → dev 정답 결합 순서를 예행한다. PCFG는 신뢰된 원본 없이는 역직렬화하지 않고, 기존 캐시를 새 파서 점수로 간주하지 않는다.
 - 명령·준비: 제한된 itcerdo 프로젝트, gsm의 두 관련 저장소, T31 연구 보관 디렉토리에서 지정된 v=3 문법 파일/명명된 보관본이 현재 보이지 않았다. 원래 PCFG 소스 커밋은 `0ca1883048dd33ab1509989a8aa8d4909bcf98e2`; C용 모델과 개발 입력은 유지되어 있다.
+- itcerdo에서 재확인: 원래 `phdq_pcfg2` 기록에는 `data/models/pcfg_best.pkl`이 명시되어 있지만 HNC 프로젝트 전체에서는 원본 파일·트리뱅크를 찾지 못했다. 다른 프로젝트 원본을 수정하지 않는다. 핀 고정 PCFG 소스를 HNC의 git 제외 도구 폴더에 준비했다. 첫 C++ 빌드는 `pybind11`/`setuptools` 누락으로 실패했으나 프로젝트 가상환경에서 보충한 뒤 CKY 로드에 성공했다.
+- 복구 대안(결과 전): 허가된 원래 T31 DP 세 ZIP과 과거 K2/K5v3 빌드 영수증을 HNC 내부로 해시 검증해 복원. 동결 소스와 같은 변환·계수를 DP **train**에만 적용한다. 593,990트리/10,223,434형태소, 문법 설정·비단말·어휘와 H8 34,110개 파싱 플래그/점수를 대조한다. 원본 바이너리의 SHA는 기록에 없으므로 동작 재현과 바이트 동일성은 구분한다. 별도로 3개 원문의 `source.txt`만 입력하는 PCFG 제외 부분 예행을 시작했다.
+
+### 17:16 · 개발 부분 예측 봉인 확인 및 PCFG 훈련분 복구 [gsm/itcerdo]
+
+- 작업: 참조를 읽기 전에 Learner/Lang8/Union 부분 예측(1·5·6·7행 제외)의 전역 봉인을 독립 재검사했다. 신경 환경의 CUDA와 원자료의 여섯 JSON 파일명도 확인했다.
+- 명령: `check_seal(WORK, True)`; `.venv-nlm/bin/python`에서 `torch.cuda.is_available()`; 원본 ZIP·빌드 영수증 `sha256sum --strict -c`.
+- 결과: 예측 프로세스 종료 0, 부분 봉인 `b7a29fbfd2fcfb7529d8d4ad5058638364d86c3ba8f23cbd9140b8c3b4a3031d`, torch `2.11.0+cu128`/CUDA 사용 가능. 부분 봉인을 전체로 바꾸지 않으며 문법 복구·동작 대조는 별도 단계다.
