@@ -105,8 +105,8 @@ def verify_cli(hyp, raw, evidence, j):
           "unaltered distributed M2 CLI")
 
 
-def official_report(d, ps, recs, raw, parts, tmp):
-    names=sorted(systems(d,False))
+def official_report(d, ps, recs, raw, parts, tmp, *, names=None, comparisons=CONTRASTS):
+    names=sorted(systems(d,False) if names is None else names)
     ev=[]
     for p,(x,types,gold) in zip(ps,raw,strict=True):
         unique={y:per_candidate(y,x,gold) for y in set(p["predictions"].values())}
@@ -123,7 +123,7 @@ def official_report(d, ps, recs, raw, parts, tmp):
             v=aggregate([Counts(len(ev[i]["hyps"][j]["tp"]),ev[i]["hyps"][j]["proposed"],ev[i]["ngold"]) for i in ids])
             hits=Counter(ev[i]["types"][idx] for i in ids for idx in ev[i]["hyps"][j]["tp"])
             totals[k]={**v.metrics(),"tp_by_reference_type":{t:{"tp":hits[t],"gold":n,"recall":hits[t]/n} for t,n in denom.items()}}
-        for a,b in CONTRASTS:
+        for a,b in comparisons:
             if a in names and b in names:
                 contrasts[f"{b}-{a}"]={"delta":totals[b]["F0.5"]-totals[a]["F0.5"],
                         "ci95":lift_ci(ev,ids,recs,[names.index(a)]*len(ps),[names.index(b)]*len(ps))}
@@ -135,10 +135,10 @@ def official_report(d, ps, recs, raw, parts, tmp):
     return result
 
 
-def typed_report(d, ps, bs, parts, bad):
-    names=sorted(systems(d,False))
+def typed_report(d, ps, bs, parts, bad, *, names=None, output=RESULT):
+    names=sorted(systems(d,False) if names is None else names)
     pairs=list(dict.fromkeys((surface(p["x"]),surface(p["predictions"][k])) for p in ps for k in names))
-    out=RESULT/f"kagas.raw.{d}"
+    out=output/f"kagas.raw.{d}"
     out.mkdir()
     proposals,failed=annotate_test_pairs(out,pairs)
     evidence=[]; types=set()
