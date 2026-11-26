@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import csv
 import io
 import os
 import re
@@ -23,6 +24,7 @@ from hnc.candidates_c import Counts, aggregate, surface
 from scripts.c_eval import lift_ci
 from scripts.c_metric import per_candidate
 from scripts.core_ablation_table import agree
+from scripts.final_test import N, read, seal
 from scripts.final_test_score import RESULT, annotate_test_pairs, open_gold, reference
 from scripts.rehearsal_aux import edit_groups, typed_counts, typed_partition
 from scripts.rehearsal_predict import save, sha, systems
@@ -164,11 +166,45 @@ def typed_report(d, ps, bs, parts, bad):
             "annotator_failures":list(failed.values())}
 
 
+def export_tables():
+    fingerprint = seal()
+    summary = read(RESULT/"summary.json")
+    if summary["seal"] != fingerprint:
+        raise ValueError("summary does not match the approved seal")
+    with (RESULT/"test_scores.csv").open("x",encoding="utf-8",newline="") as a, \
+            (RESULT/"test_contrasts.csv").open("x",encoding="utf-8",newline="") as b:
+        cells, contrasts = csv.writer(a), csv.writer(b)
+        fields = ("correct","proposed","gold","P","R","F0.5")
+        cells.writerow(("domain","partition","n","system",*fields,"gleu_x100","typed_complete"))
+        contrasts.writerow(("domain","partition","n","contrast","delta_F0.5","ci_low","ci_high"))
+        for d in N:
+            reports = {}
+            for kind, digest in summary["domains"][d]["report_sha"].items():
+                p = RESULT/f"{kind}.{d}.json"
+                if sha(p) != digest:
+                    raise ValueError("report differs from validated test summary")
+                reports[kind] = read(p)["partitions"]
+            for part,m in reports["m2"].items():
+                g,t = reports["gleu"][part],reports["kagas"][part]
+                if (m["n"]!=g["n"] or m["n"]!=t["n"] or
+                        not m["metrics"].keys()==g["gleu_x100"].keys()==t["typed"].keys()):
+                    raise ValueError("metric denominators or systems differ")
+                for k,v in m["metrics"].items():
+                    cells.writerow([d,part,m["n"],k,*[v[x] for x in fields],g["gleu_x100"][k],t["typed"][k] is not None])
+                for k,v in m["paired"].items():
+                    contrasts.writerow([d,part,m["n"],k,v["delta"],*v["ci95"]])
+
+
 if __name__=="__main__":
     os.umask(0o077)
     p=argparse.ArgumentParser()
-    p.add_argument("kind",choices=("m2","kagas")); p.add_argument("domain",choices=("lang8","union"))
+    p.add_argument("kind",choices=("m2","kagas","export")); p.add_argument("domain",nargs="?",choices=("lang8","union"))
     a=p.parse_args()
+    if (a.domain is None)!=(a.kind=="export"):
+        p.error("export covers all domains; other modes need a transfer domain")
+    if a.kind=="export":
+        export_tables()
+        sys.exit(0)
     fingerprint,ps,recs,bs,parts=open_gold(a.domain)
     with TemporaryDirectory(dir=RESULT) as folder:
         tmp=Path(folder)
