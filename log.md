@@ -938,3 +938,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 참조를 읽기 전에 Learner/Lang8/Union 부분 예측(1·5·6·7행 제외)의 전역 봉인을 독립 재검사했다. 신경 환경의 CUDA와 원자료의 여섯 JSON 파일명도 확인했다.
 - 명령: `check_seal(WORK, True)`; `.venv-nlm/bin/python`에서 `torch.cuda.is_available()`; 원본 ZIP·빌드 영수증 `sha256sum --strict -c`.
 - 결과: 예측 프로세스 종료 0, 부분 봉인 `b7a29fbfd2fcfb7529d8d4ad5058638364d86c3ba8f23cbd9140b8c3b4a3031d`, torch `2.11.0+cu128`/CUDA 사용 가능. 부분 봉인을 전체로 바꾸지 않으며 문법 복구·동작 대조는 별도 단계다.
+
+### 17:17–17:22 · PCFG 전 후보 재현 및 개발 전체 예측 봉인 [gsm/itcerdo]
+
+- 작업: NIKL DP 훈련분으로 v3 문법 재구축 → 신뢰된 개발 H8에 대한 플래그·로그점수 대조 → 네 PCFG 의존 행 추가. 먼저 봉인한 예측·설명은 하나도 바뀌지 않아야 전체 봉인을 허용했다.
+- 명령: `scripts/recover_rehearsal_grammar.py`, `scripts/rehearsal_pcfg.py`, `scripts/rehearsal_seal.py --promote`. 원문 생성 `7a7bb13`, 재구성 `9934005`, 부분→전체 검증 `5a2756d`.
+- 결과: 훈련 트리 593,990, 형태소 10,223,434, 비단말 30,764, 어휘 77,597. 모델 SHA-256 `b588226df158c882a1ada18cc32114d5337dfd77237bdcef84be59452748f5cc`. **34,110개 전부 플래그 일치(성공 33,774), 점수 최대 절대 오차 0**. 원래 바이너리와 크기(23,061,327바이트)도 같지만 과거 파일 해시는 없어 바이트 동일성을 주장하지 않는다. 전역 전체 봉인 `2bb0d5c8d55becfd8a9b53af6b62be29cb5c8aa19984126860004d7ae8cd0768` 검증 후에만 과거 C 원자료 12개를 T31 지문과 대조해 평가 전용 경로에 놓았다.

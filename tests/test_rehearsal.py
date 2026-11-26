@@ -4,6 +4,7 @@ import pytest
 
 from scripts import rehearsal_seal as seal
 from scripts import rehearsal_score as score
+from scripts.rehearsal_aux import edit_groups, ratios, typed_counts
 from scripts.rehearsal_predict import require_source, systems
 
 
@@ -64,3 +65,18 @@ def test_grade_compares_occurrences_not_just_the_normalized_sentence():
     for changed in ({"i": 0}, {"x": "다른 원문"}, {"y": "다른 참조"}):
         with pytest.raises(ValueError):
             score.validate_join("lang8", 1, p, {**r, **changed}, ["S 두 송이"], r["y"])
+
+
+def test_typed_matching_uses_allowed_surfaces_spans_types_and_each_edit_only_once():
+    def entry(t, correction, pos="0 1"):
+        return f"A {pos}|||{t}|||{correction}|||REQUIRED|||-NONE-|||0"
+    source = "S 두 송이"
+    gold = edit_groups([source, entry("SPELL", "셋||세"), entry("SPELL", "셋"), entry("ENDING", "넷")])
+    predicted = edit_groups([source, entry("SPELL", "셋"), entry("SPELL", "세"), entry("SPELL", "셋"),
+                             entry("NOUN", "넷"), entry("ENDING", "넷", "1 2")])
+    h, p, g = typed_counts(gold, predicted)
+    assert h["SPELL"] == 2 and h.total() == 2 and p.total() == 5 and g.total() == 3
+    assert ratios(0, 0, 2) == {"tp": 0, "proposed": 0, "gold": 2, "P": None, "R": 0., "F0.5": 0.}
+    assert ratios(0, 0, 0)["F0.5"] is None
+    with pytest.raises(ValueError, match="different source"):
+        typed_counts(gold, edit_groups(["S 한 송이"]))
