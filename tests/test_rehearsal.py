@@ -4,7 +4,7 @@ import pytest
 
 from scripts import rehearsal_seal as seal
 from scripts import rehearsal_score as score
-from scripts.rehearsal_aux import edit_groups, ratios, typed_counts
+from scripts.rehearsal_aux import edit_groups, ratios, typed_counts, typed_partition
 from scripts.rehearsal_predict import require_source, systems
 
 
@@ -80,3 +80,12 @@ def test_typed_matching_uses_allowed_surfaces_spans_types_and_each_edit_only_onc
     assert ratios(0, 0, 0)["F0.5"] is None
     with pytest.raises(ValueError, match="different source"):
         typed_counts(gold, edit_groups(["S 한 송이"]))
+
+
+def test_one_unannotatable_pair_invalidates_its_entire_cell_not_other_systems_or_partitions():
+    counts = typed_counts(edit_groups(["S 푸른 바다"]), edit_groups(["S 푸른 바다"]))
+    evidence = [{"r9": counts, "r11": counts}, {"r9": counts, "r11": None}]
+    assert typed_partition(evidence, [0, 1], "r11", {"WS"}) == (None, [1])
+    for ids, system in (([0, 1], "r9"), ([0], "r11")):
+        valid, failed = typed_partition(evidence, ids, system, {"WS"})
+        assert valid == {"WS": ratios(0, 0, 0)} and failed == []
