@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.rehearsal_predict import CONFIG, WORK, require_source, rows, save, sha, systems
+from scripts.rehearsal_predict import CONFIG, WORK, choose, require_source, rows, save, sha, systems
 
 
 def inventory(partial):
@@ -53,7 +53,29 @@ def check_seal(root, partial, *, create=False):
     return sha(path)
 
 
+def unchanged_decisions(partial, full):
+    for old, new in zip(partial, full, strict=True):
+        projection = {k: new["predictions"][k] for k in old["predictions"]}
+        if old != {**new, "predictions": projection}:
+            raise ValueError("adding PCFG changed an already sealed decision or audit")
+
+
+def promote():
+    check_seal(WORK, True)
+    pcfg = json.loads((WORK/"korean_learner/pcfg.verified.json").read_text())
+    if (pcfg["candidates"], pcfg["parsed"]) != (34110, 33774) or not 0 <= pcfg["max_error"] <= 1e-8:
+        raise ValueError("incomplete PCFG replay")
+    for d in CONFIG:
+        choose(d, False)
+        unchanged_decisions(*(rows(WORK/d/f"predictions.{mode}.jsonl") for mode in ("partial", "full")))
+    check_seal(WORK, True)
+    return check_seal(WORK, False, create=True)
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--partial-no-pcfg", action="store_true")
-    print("dev seal:", check_seal(WORK, p.parse_args().partial_no_pcfg, create=True), flush=True)
+    opts = p.add_mutually_exclusive_group()
+    opts.add_argument("--partial-no-pcfg", action="store_true")
+    opts.add_argument("--promote", action="store_true", help="reuse a verified partial run after the PCFG replay")
+    args = p.parse_args()
+    print("dev seal:", promote() if args.promote else check_seal(WORK, args.partial_no_pcfg, create=True), flush=True)

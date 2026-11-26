@@ -35,3 +35,11 @@ def test_global_seal_rejects_partial_as_full_and_modified_outputs(tmp_path, monk
     path.write_text(json.dumps({**pred, "x": "다른 문장"}) + "\n")
     with pytest.raises(ValueError, match="changed predictions"):
         seal.check_seal(tmp_path, True)
+
+
+def test_promoting_may_only_add_new_decisions():
+    partial = {"i": 0, "predictions": {"r9": "봄"}, "audit": {"r9": []}}
+    full = {**partial, "predictions": {"r9": "봄", "r1": "밤"}}
+    seal.unchanged_decisions([partial], [full])
+    with pytest.raises(ValueError, match="sealed decision"):
+        seal.unchanged_decisions([partial], [{**full, "predictions": {"r9": "밤", "r1": "밤"}}])
