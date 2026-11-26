@@ -170,6 +170,32 @@ def priors(kind, workers):
     save(ROOT/f"{kind}.json", scores)
 
 
+def plot_curve(report):
+    points = [r for r in report if r["part"] == "check"]
+    if [r["percent"] for r in points] != list(FRACTIONS):
+        raise ValueError("a partial learning curve must not be plotted as complete")
+    xs = [65+5*r["percent"] for r in points]
+    with (ROOT/"curve.svg").open("x", encoding="utf-8") as f:
+        f.write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 650 395"><title>'
+                'Matched Learner supervision, development check F0.5</title>'
+                '<rect width="650" height="395" fill="white"/><g font-family="sans-serif" font-size="14">'
+                '<text x="50" y="25">Learner dev check: official M² F0.5 (points)</text>')
+        for value in (0, 20, 40, 60, 80, 100):
+            y = 320-2.6*value
+            f.write(f'<path d="M65 {y}H575" stroke="#ddd"/><text x="22" y="{y+4}">{value}</text>')
+        for r, x in zip(points, xs, strict=True):
+            f.write(f'<text x="{x}" y="344" text-anchor="middle">{r["percent"]}%</text>')
+        f.write('<text x="315" y="379" text-anchor="middle">Fraction of Learner training pairs</text>')
+        for j, (name, color) in enumerate((("A", "#20639b"), ("B", "#a94f00"), ("KoBART", "#685098"))):
+            xy = [(x, 320-260*r["scores"][name]["F0.5"]) for x, r in zip(xs, points, strict=True)]
+            pairs = " ".join(f"{x},{y:.2f}" for x, y in xy)
+            f.write(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{pairs}"/>')
+            for x,y in xy:
+                f.write(f'<circle cx="{x}" cy="{y:.2f}" r="3.5" fill="{color}"/>')
+            f.write(f'<text x="{405+55*j}" y="42" fill="{color}">{name}</text>')
+        f.write("</g></svg>\n")
+
+
 def evaluate():
     from scripts.c_metric import annotations, per_candidate, stats
     from scripts.c_eval import lift_ci
@@ -216,6 +242,7 @@ def evaluate():
         for r in report:
             for k,v in r["scores"].items():
                 writer.writerow([r["percent"],r["train_n"],r["part"],r["dev_n"],k,v["P"],v["R"],v["F0.5"]])
+    plot_curve(report)
 
 
 if __name__ == "__main__":

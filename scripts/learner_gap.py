@@ -30,6 +30,7 @@ def read(path):
 
 
 def run():
+    sys.path.insert(0, str(Path("tools/m2scorer/scripts").resolve()))
     for folder in ("proposal","edit","controls"):
         subprocess.run(["sha256sum","--quiet","--strict","-c","INPUTS.sha256"],cwd=INPUT/folder,check=True)
     if sha(GATE/"seal.full.json") != DEV_SEAL:
