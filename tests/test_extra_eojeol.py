@@ -62,5 +62,8 @@ def test_rerank_and_reference_unmatched_deletion_are_distinct(model, monkeypatch
     assert rerank(x, hs, model, lambda _: 1.)[0] == (0, 0, 1)
     good = annotations(["S " + x, "A 1 2|||DELETION|||-NONE-|||REQUIRED|||-NONE-|||0"])
     bad = annotations(["S " + x, "A -1 -1|||noop|||-NONE-|||REQUIRED|||-NONE-|||0"])
-    assert assessed(y, *good)["del_tp"] == [0] and assessed(y, *good)["del_fp"] == []
-    assert assessed(y, *bad)["del_tp"] == [] and assessed(y, *bad)["del_fp"] == [1]
+    right = assessed(y, *good, reference=y)
+    wrong = assessed(y, *bad, reference=x)
+    assert right["del_tp"] == [0] and right["del_fp"] == []
+    assert wrong["del_tp"] == [] and wrong["del_fp"] == [1] and wrong["pure_unmatched"]
+    assert not assessed(y, *bad, reference=y)["del_fp"]

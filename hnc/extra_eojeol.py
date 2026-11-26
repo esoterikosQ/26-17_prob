@@ -70,9 +70,10 @@ class ExtraEojeol:
     @classmethod
     def fit(cls, pairs: Iterable[tuple[str, str]]) -> tuple[ExtraEojeol, dict[str, int]]:
         """Count opportunities in all nonempty train references; count isolated x/y events only."""
-        opp = dict.fromkeys(CONTEXTS, 0)
+        opp: dict[str, int] = {k: 0 for k in CONTEXTS}
         counts: dict[str, dict[str, float]] = {k: defaultdict(float) for k in CONTEXTS}
-        info = dict.fromkeys(("pairs", "empty_y", "events", "repeated_slots", "punctuation_excluded"), 0)
+        info: dict[str, int] = {k: 0 for k in
+                                ("pairs", "empty_y", "events", "repeated_slots", "punctuation_excluded")}
         for x, y in pairs:
             xs, ys = x.split(), y.split()
             info["pairs"] += 1

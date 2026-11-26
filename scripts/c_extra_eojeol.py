@@ -15,13 +15,13 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hnc.candidates_c import Counts, aggregate, surface
-from hnc.extra_eojeol import CONTEXTS, ExtraEojeol
+from hnc.extra_eojeol import CONTEXTS, ExtraEojeol, insertion_slots
 from hnc.morph import MorphAnalyzer
 from scripts.c_deletion_paths import EXPECTED as PAIR_SIZES
 from scripts.c_edit_select import WEIGHT, write_cases
 from scripts.c_eval import candidate_score, lift_ci, pick
 from scripts.c_features import load_external_channel
-from scripts.c_metric import aligned_edits, annotations
+from scripts.c_metric import aligned_edits, annotations, scored_alignment
 from scripts.c_strong_dev import DOMAINS, ORDER, ROOT, SIZES, gold_path, rows, save, scored_pools
 from scripts.decode import m2_blocks, m2score, write_m2
 from scripts.population_dev import is_selection
@@ -72,21 +72,36 @@ def rerank(x, hyps, model, identity):
     return (base, reserved, final), adjustments
 
 
-def assessed(text, x, types, gold):
-    import levenshtein as lev
-    ids, edits = aligned_edits(text, x, gold)
-    matched = lev.matchSeq(edits, gold)
+def deletion_loci(before: str, after: str, start: int = 0) -> tuple[int, ...]:
+    xs, ys = before.split(), after.split()
+    if len(xs) == 1 and not ys:
+        return (start,)
+    return tuple(start + i for i in insertion_slots(ys, xs))
+
+
+def assessed(text, x, types, gold, *, reference: str):
+    ids, matched, edits = scored_alignment(text, x, gold)
     if len(ids) != len(matched):
         raise ValueError("M² match sequence differs from reference IDs")
     def one_deleted(edit):
         return edit[1] == edit[0] + 1 and edit[3] == ""
-    proposed = Counter(e[0] for e in edits if one_deleted(e))
-    matched_starts = Counter(e[0] for e in matched if one_deleted(e))
     hits = [k for k, e in zip(ids, matched, strict=True) if one_deleted(e)]
-    fp = sorted((proposed - matched_starts).elements())
-    if len(hits) + len(fp) != proposed.total():
-        raise ValueError("deletion precision denominator does not close")
+    raw_fp = sum(map(one_deleted, edits)) - len(hits)
+    ref_slots = {a for a, b, _, cs in gold if b == a + 1 and "" in cs}
+    pure = deletion_loci(x, text)
+    fp = []
+    # An unmatched M² replacement can pad a pure deletion with unchanged neighboring words.
+    if text != surface(reference) and len(matched) != len(edits):
+        if pure:
+            if ref_slots.isdisjoint(pure):
+                fp.append(pure[0])
+        else:
+            for (a, _, before, after), count in (Counter(edits) - Counter(matched)).items():
+                loci = deletion_loci(before, after, a)
+                if loci and ref_slots.isdisjoint(loci):
+                    fp.extend([loci[0]] * count)
     return {"tp": ids, "proposed": len(edits), "del_tp": hits, "del_fp": fp,
+            "m2_explicit_del_fp": raw_fp, "pure_unmatched": bool(pure and fp),
             "kagas_deletion_tp": sum(types[k] == "DELETION" for k in ids)}
 
 
@@ -138,6 +153,8 @@ def summarize(ids, results, recs, blocks, fixed, part, tmp):
         out[name] = m
         dels[name] = {"correct": sum(len(h["del_tp"]) for h in chosen), "unmatched": sum(len(h["del_fp"]) for h in chosen),
                       "gold": sum(results[i]["ndel"] for i in ids),
+                      "pure_output_unmatched": sum(h["pure_unmatched"] for h in chosen),
+                      "m2_explicit_unmatched": sum(h["m2_explicit_del_fp"] for h in chosen),
                       "kagas_deletion_tp": sum(h["kagas_deletion_tp"] for h in chosen)}
     deltas, switches = Counter(), Counter()
     for i in ids:
@@ -212,7 +229,7 @@ def run(domain):
             for j, h in enumerate(hs):
                 if adj[j].kind == "identity" and abs(identity(x)-h["ch"]) > 1e-8:
                     raise ValueError("frozen copy channel mismatch")
-            unique = {j: dict(assessed(hs[j]["text"], *ref), text=hs[j]["text"]) for j in set(choices)}
+            unique = {j: dict(assessed(hs[j]["text"], *ref, reference=rec["y"]), text=hs[j]["text"]) for j in set(choices)}
             result = {"i": rec["i"], "unit_id": rec["unit_id"], "component": rec["component"], "chosen": choices,
                       "ngold": len(ref[2]), "ndel": sum(b==a+1 and "" in cs for a,b,_,cs in ref[2]),
                       "counts": dict(Counter(v.kind for v in adj)), "hyps": [unique[j] for j in choices]}
