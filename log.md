@@ -776,3 +776,17 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 작업: 사용자 설정 `gdrive_prob`로 두 `gec2` 개별 모델의 `lr5e-5_seed0/ckpt/best`만 복원한다. 기존 dev 확인 문장·HNC 빔·설정 지문을 재확인했다. 공개 저장소에 가중치 또는 인증 정보를 넣지 않는다.
 - 명령: 원격 tmux에서 프로젝트의 `rclone md5sum` → `rclone copy --checksum --immutable` → 파일별 MD5·SHA-256 및 원래 epoch/dev GLEU 대조. 각 모델의 검증이 끝난 뒤에만 `scripts/run_c_strong_dev.sh lang8 union`의 해당 단계를 실행한다. 수동 다운로드·검수표·시험셋은 별개다.
 - 12:16 결과: 새 전용 연결로 전송 종료 코드 0. Lang8·Union 각 7파일 전부 Drive MD5 일치, 로컬 SHA-256 재검산 일치. 두 `model.safetensors`는 각각 495,589,768바이트이며 `data/c_gec2_dev_v1/models/{lang8,union}/`에 유지한다. Lang8: epoch 3, dev GLEU 34.9182, 가중치 SHA-256 `3b538e81bca815de22ee0b97ad6f9ae1e60580e8353b330f24250146ab2558f4`; Union: epoch 8, 44.2453, `8b98934ca4ee7b9654fb1577a836ebde5ec90936ed7e41e1885c4eae3c3c847d`. Lang8 64문장 예비검사에서 원래 1위 64/64 일치 후 전체 dev 시작.
+
+### 12:16–13:27 · Lang8·Union 정식 C 개발셋 전이 결과 [itcerdo/gsm, KST]
+
+- 작업: 이전에 고정한 Learner 채널·LM·λ₄=.5를 그대로 적용했다. 같은 강한 KoBART의 보관 1위, 자체 후보 최대 8개를 재채점한 결과, 같은 채점기에 HNC 최대 8개를 보탠 결과를 구분한다. Union 모델은 모든 원자료에 동일하게 적용했다.
+- 명령: `bash scripts/run_c_strong_dev.sh lang8 union` → 복원·평가 tmux 모두 종료 코드 0. 전체 개발셋 beam-4가 원래 출력과 Lang8 **16,434/16,434**, Union **23,332/23,332** 일치. 합집합 후보 247,540 / 352,270개. 토큰별 조건부 점수 검산 절대차 각각 0.0000029 / 0.0000010 이하. 각 분할·시스템의 P/R/F0.5를 공식 M² CLI와 대조하고 이전 1위 충분통계도 전부 재현했다.
+- 결과 — 같은 정답문으로 묶은 **dev 확인 부분**, M² F0.5(100점 척도). 차이는 반올림 전 점수 기준, 구간은 정답문 단위 대응 부트스트랩 95%.
+
+| 자료 (문장) | 강한 KoBART 1위 | KoBART 후보만 재채점 | HNC 포함 정식 C | C − 1위 [95%] | HNC 후보 추가분 [95%] |
+|---|---:|---:|---:|---|---|
+| Lang8 (8,305) | 43.24 | 44.13 | 43.64 | +0.40 [−0.41,+1.19] | −0.49 [−0.93,−0.06] |
+| Union (11,674) | 52.75 | 52.46 | 51.25 | −1.50 [−2.19,−0.82] | −1.21 [−1.60,−0.85] |
+
+- 참고: 합집합에서 조건부 점수 제외 시 확인 41.85 / 47.82. 전체 dev 정식 C는 각각 44.02 / 51.76. Union 확인에서 정밀도는 59.32→60.95이나 재현율이 36.55→31.32. 같은 Union 모델에서 원래 1위 대비 정식 C 변화는 Learner 출처 +5.79점, Lang8 −3.54점, Native −2.18점. 부분별 정답·제안·일치 편집 수를 합산해 Union 전체와 일치함을 검증했다. Learner에서 정한 설정이 모든 원자료에 이롭다는 근거는 없으며 확인 부분을 보고 가중치를 다시 고르지 않았다. 검수표·키·test 미사용.
+- 보관: T31의 `phdq_prob/phdq_prob/outputs/c_gec2_dev_v1/`에 기존 32개 목록을 보존하고 복원 영수증 5개(`MANIFEST_drive_restore.sha256`), 두 정식 실행 기록 16개(`MANIFEST_full_transfer.sha256`, 목록 해시 `7c07926c1bb58a7b3dadbf43d90e186ee89507edc2995fa097947f37ea4ba6d4`)를 추가·검증했다. 해시가 일치하는 원격 중간 파일 8개만 정리했고, 두 모델은 itcerdo에 그대로 두고 SHA-256을 다시 확인했다.
