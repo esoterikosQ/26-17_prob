@@ -71,6 +71,10 @@ def work(item):
             "hyps": [dict(per_candidate(h["text"], x, gold), h=h["h"], s=h["s"]) for h in pool["hyps"]]}
 
 
+def matched_edits(hyps):
+    return {k for h in hyps for k in h["tp"]}
+
+
 def proposal_evidence(metric, recs, indices):
     exact = dict.fromkeys(("both", "h_only", "s_only", "neither"), 0)
     hits = dict.fromkeys(exact, 0)
@@ -86,7 +90,7 @@ def proposal_evidence(metric, recs, indices):
         overlap += sum(c["h"] is not None and c["s"] is not None for c in hyp)
         eh, es = any(c["text"] == y for c in h), any(c["text"] == y for c in s)
         exact["both" if eh and es else "h_only" if eh else "s_only" if es else "neither"] += 1
-        gh, gs = {k for c in h for k in c["tp"]}, {k for c in s for k in c["tp"]}
+        gh, gs = matched_edits(h), matched_edits(s)
         hits["both"] += len(gh & gs)
         hits["h_only"] += len(gh - gs)
         hits["s_only"] += len(gs - gh)

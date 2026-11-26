@@ -790,3 +790,8 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 
 - 참고: 합집합에서 조건부 점수 제외 시 확인 41.85 / 47.82. 전체 dev 정식 C는 각각 44.02 / 51.76. Union 확인에서 정밀도는 59.32→60.95이나 재현율이 36.55→31.32. 같은 Union 모델에서 원래 1위 대비 정식 C 변화는 Learner 출처 +5.79점, Lang8 −3.54점, Native −2.18점. 부분별 정답·제안·일치 편집 수를 합산해 Union 전체와 일치함을 검증했다. Learner에서 정한 설정이 모든 원자료에 이롭다는 근거는 없으며 확인 부분을 보고 가중치를 다시 고르지 않았다. 검수표·키·test 미사용.
 - 보관: T31의 `phdq_prob/phdq_prob/outputs/c_gec2_dev_v1/`에 기존 32개 목록을 보존하고 복원 영수증 5개(`MANIFEST_drive_restore.sha256`), 두 정식 실행 기록 16개(`MANIFEST_full_transfer.sha256`, 목록 해시 `7c07926c1bb58a7b3dadbf43d90e186ee89507edc2995fa097947f37ea4ba6d4`)를 추가·검증했다. 해시가 일치하는 원격 중간 파일 8개만 정리했고, 두 모델은 itcerdo에 그대로 두고 SHA-256을 다시 확인했다.
+
+### 13:32 · 후보 생성/선택과 채널 점수 기여 분리 시작 [gsm/itcerdo, KST]
+
+- 작업: 강한 KoBART 3개 실험의 기존 확인 부분만 진단. 순위·후보·형태소/인과 LM·KoBART 조건부 가중치와 동점 처리를 고정하고, 채널 점수 유무와 후보원만 바꾼다. 유형은 사람 판단이나 모형의 설명이 아닌 M² 참조 편집의 KAGAS 태그다.
+- 명령·결과: T31에서 각 모델의 `features.jsonl`, `causal.jsonl` 2개씩만 itcerdo `outputs/c_proposal_diag_v1/input/`으로 전송. 기존 두 목록에서 가져온 SHA-256과 6개 전부 일치했다. tar가 macOS 확장 속성을 무시한다는 경고를 냈지만 파일 내용 해시는 일치했다. 사람 검수와 독립이며 후보를 새로 만들지 않는다.

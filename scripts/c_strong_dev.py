@@ -99,7 +99,7 @@ def prepare(domain):
     save(out / "recipe.json", {"domain": domain, "n": len(records), "epoch": ep["epoch"], "val_gleu": ep["val_gleu"]})
 
 
-def output_choices(out, recs, *, s1h8=False):
+def scored_pools(out, recs, *, s1h8=False):
     causal = {c["text"]: c["lp"] for c in rows(out / "causal.jsonl")}
     for rec, pool in zip(recs, rows(out / "features.jsonl"), strict=True):
         if (rec["i"], rec["unit_id"], rec["x"]) != (pool["i"], pool["unit_id"], pool["x"]):
@@ -111,15 +111,23 @@ def output_choices(out, recs, *, s1h8=False):
             h["prior"] = .5 * h["lm"] + causal[h["text"]]
             if not all(math.isfinite(h[k]) for k in (("prior", "ch") if s1h8 else ("prior", "ch", "s2s"))):
                 raise ValueError("non-finite transfer score")
-        result = {"archived": rec["archived"]}
+        yield rec, hyps
+
+
+def fixed_indices(hyps) -> dict[str, int]:
+    return {"archived": next(i for i, h in enumerate(hyps) if h["s"] == 0),
+            "s_fixed": pick(hyps, "s", .5), "union_no_s2s": pick(hyps, "union", 0.),
+            "union_fixed": pick(hyps, "union", .5)}
+
+
+def output_choices(out, recs, *, s1h8=False):
+    for rec, hyps in scored_pools(out, recs, s1h8=s1h8):
         if s1h8:
             eligible = [h for h in hyps if h["h"] is not None or h["s"] == 0]
-            result["s1h8_no_s2s"] = min(eligible, key=lambda h: (h["ch"] - h["prior"], h["text"]))["text"]
-            yield result
+            best = min(eligible, key=lambda h: (h["ch"] - h["prior"], h["text"]))
+            yield {"archived": rec["archived"], "s1h8_no_s2s": best["text"]}
             continue
-        for name, src, w in (("s_fixed", "s", .5), ("union_no_s2s", "union", 0.), ("union_fixed", "union", .5)):
-            result[name] = hyps[pick(hyps, src, w)]["text"]
-        yield result
+        yield {name: hyps[j]["text"] for name, j in fixed_indices(hyps).items()}
 
 
 def old_choices(recs):
