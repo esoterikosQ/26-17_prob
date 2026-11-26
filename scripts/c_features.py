@@ -52,12 +52,10 @@ def work(row):
     return row
 
 
-def cpu(rows, out, workers):
+def load_external_channel():
     from hnc.external_channel import ExternalChannel, JamoPaths
     from hnc.jamo_channel import ChannelParams
     from hnc.morph_channel import MorphChannel
-    from hnc.morph_lm import load_lm
-    global _lm, _channel
     d = Path("datasets/channel/learner_lang8_J")
     params = ChannelParams.from_json((d / "params.json").read_text())
     observed = set()
@@ -67,7 +65,13 @@ def cpu(rows, out, workers):
             if r["c"] > 0:
                 observed.add((tuple(r["a"]), tuple(r["b"])))
     morph = MorphChannel.from_json(Path("datasets/morph_channel/learner/params.json").read_text())
-    _channel = ExternalChannel(JamoPaths(params, observed), morph)
+    return ExternalChannel(JamoPaths(params, observed), morph)
+
+
+def cpu(rows, out, workers):
+    from hnc.morph_lm import load_lm
+    global _lm, _channel
+    _channel = load_external_channel()
     _lm = load_lm("datasets/lm/v0/lm5.bin,datasets/lm/v1/lm5.bin", "0.8,0.2")
     with mp.get_context("fork").Pool(workers, initializer=init_worker) as pool, \
             (out / "features.jsonl").open("x", encoding="utf-8") as f:

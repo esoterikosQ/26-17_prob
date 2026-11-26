@@ -48,6 +48,48 @@ def test_observed_path_is_distinct_from_positive_smoothed_path():
     assert math.isfinite(j.costs("", "☃")[1])
 
 
+def test_jamo_trace_keeps_observed_smoothed_and_open_symbol_paths_separate():
+    a, b, ab = ((), ("a",)), ((), ("b",)), ((), ("a", "b"))
+    jam = JamoPaths(ChannelParams({a: .1, b: .2, ab: .001}), {b, ab})
+    routes = jam.traceback("", "ab")
+    assert [s["kind"] for s in routes["observed"]] == ["observed"]
+    assert [s["kind"] for s in routes["backoff"]] == ["smoothed", "observed"]
+    assert jam.costs("", "ab") == pytest.approx((-math.log(.001), -math.log(.1*.2)))
+    assert [s["x"] for s in routes["backoff"]] == [[0, 1], [1, 2]]
+    assert [s["kind"] for s in jam.traceback("", "bb")["observed"]] == ["observed", "observed"]
+    other = jam.traceback("", "!")
+    assert other["observed"] is None and other["backoff"][0]["kind"] == "other"
+
+
+def test_fitted_whitespace_probe_is_not_scored_or_counted_as_support():
+    from scripts.c_deletion_paths import morph_status, support
+    ch = ExternalChannel(JamoPaths(ChannelParams(), set()), MorphChannel(
+        {}, {}, {"또/MAG|NNG": [2., 4]}, {}))
+    ys, xs = [("새", "NNG", 0, 1)], [("새", "NNG", 0, 1), ("또", "MAG", 2, 3)]
+    trace = {}
+    plain = ch.score("새", "새 또", ys, xs)
+    assert ch.score("새", "새 또", ys, xs, trace=trace) == plain
+    reg, = trace["regions"]
+    assert reg["guards"] == ["whitespace"] and reg["space_probe"] and morph_status(reg) == "fitted"
+    assert reg["morph_steps"][-1] == {"label": "MORPH_INS", "left_tag": "NNG", "y_tag": None,
+                                      "x_tag": "MAG", "floor": False, "cost": 2.}
+    assert set(reg["route_costs"]) == {"jamo_backoff"} and support([reg]) == ("requires_backoff", None, 1.)
+    xs = [("새", "NNG", 0, 1), ("도", "JX", 1, 2)]
+    _, spans = ch.score("새", "새도", ys, xs, trace=trace)
+    reg, = trace["regions"]
+    assert not reg["guards"] and not reg["space_probe"] and morph_status(reg) == "floor"
+    assert reg["route_costs"]["morph_floor"] == 12. and spans[0]["backoff_only"]
+
+
+def test_sentence_support_multiplies_masses_not_map_region_decisions():
+    from scripts.c_deletion_paths import support
+    reg = {"route_costs": {"jamo_observed": -math.log(.6), "morph_floor": -math.log(.4)}, "local": 0.}
+    assert support([reg])[0] == "observed_mass_larger"
+    group, logp, back = support([reg, reg])
+    assert group == "backoff_mass_larger_with_support"
+    assert logp == pytest.approx(math.log(.36)) and back == pytest.approx(.64)
+
+
 def test_morphology_and_backoff_all_spans():
     ch = ExternalChannel(JamoPaths(ChannelParams(), set()), MorphChannel(
         {"를/JKO": [[["가", "JKS"], "PARTICLE", 1., 8]]}, {}, {}, {}))
