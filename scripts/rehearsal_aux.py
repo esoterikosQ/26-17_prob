@@ -25,13 +25,22 @@ KAGAS = Path("tools/KAGAS")
 
 
 def gleu(d, seal, ps, recs, parts):
+    results, blobs = compute_gleu(d, ps, recs, parts, RESULT)
+    baseline = results["all_dev"]["gleu_x100"]["r9"]
+    if not math.isclose(baseline, CONFIG[d][2], rel_tol=0, abs_tol=.00011):
+        raise ValueError(f"{d}: fresh beam-4 GLEU {baseline} differs from archived {CONFIG[d][2]}")
+    save(RESULT/f"gleu.{d}.json", {"seal": seal, "domain": d, "evaluator_blobs": blobs, "partitions": results})
+    print(f"{d}: source-aware GLEU, full beam-4 {baseline:.4f}", flush=True)
+
+
+def compute_gleu(d, ps, recs, parts, output):
     blobs = subprocess.check_output(["git", "hash-object", str(GLEU/"metric/gleu.py"),
                                      str(GLEU/"metric/gleumodule.py")], text=True).splitlines()
     if blobs != ["42976ea997d5e8c3cf6d3abb5020732213cf0da3", "ab280799d737f957ac244a04bde4e3f437259aa2"]:
         raise ValueError("GLEU is not the pinned BART evaluator")
     names = sorted(systems(d, False))
     results = {}
-    with TemporaryDirectory(dir=RESULT) as tmp:
+    with TemporaryDirectory(dir=output) as tmp:
         folder = Path(tmp)
         for part, ids in parts.items():
             write_lines(folder/"x", (ps[i]["x"] for i in ids))
@@ -46,11 +55,7 @@ def gleu(d, seal, ps, recs, parts):
             if result.keys() != set(names) or not all(0 <= value <= 100 for value in result.values()):
                 raise ValueError(f"{d}/{part}: invalid GLEU result")
             results[part] = {"n": len(ids), "gleu_x100": result}
-    baseline = results["all_dev"]["gleu_x100"]["r9"]
-    if not math.isclose(baseline, CONFIG[d][2], rel_tol=0, abs_tol=.00011):
-        raise ValueError(f"{d}: fresh beam-4 GLEU {baseline} differs from archived {CONFIG[d][2]}")
-    save(RESULT/f"gleu.{d}.json", {"seal": seal, "domain": d, "evaluator_blobs": blobs, "partitions": results})
-    print(f"{d}: source-aware GLEU, full beam-4 {baseline:.4f}", flush=True)
+    return results, blobs
 
 
 def matching(predictions, accepted):

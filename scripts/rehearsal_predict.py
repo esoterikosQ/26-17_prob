@@ -69,8 +69,8 @@ def sources(domain):
     return [{"i": i, "unit_id": f"{domain}:dev:{i}", "x": x} for i, x in enumerate(texts)]
 
 
-def require_source(row, domain, i):
-    if (set(row) != {"i", "unit_id", "x"} or row["i"] != i or row["unit_id"] != f"{domain}:dev:{i}"
+def require_source(row, domain, i, split="dev"):
+    if (set(row) != {"i", "unit_id", "x"} or row["i"] != i or row["unit_id"] != f"{domain}:{split}:{i}"
             or not isinstance(row["x"], str)):
         raise ValueError(f"{domain}/{i}: expected only occurrence ID and raw source")
 
@@ -91,16 +91,18 @@ def hnc_one(row):
 
 
 def hnc(domain, workers):
+    write_hnc(domain, workers, WORK/domain, sources(domain), "dev")
+
+
+def write_hnc(domain, workers, out, src, split):
     from hnc.morph import MorphAnalyzer
     from hnc.morph_channel import MorphChannel
     from hnc.morph_lm import load_lm
     global _full, _morph
-    out = WORK / domain
     out.mkdir(exist_ok=False)
-    src = sources(domain)
     with (out / "sources.jsonl").open("x", encoding="utf-8") as f:
         for i, r in enumerate(src):
-            require_source(r, domain, i)
+            require_source(r, domain, i, split)
             line(f, r)
     args = (load_vocab(VOCAB, 5), load_lm(LM, "0.8,0.2"), MorphAnalyzer(),
             MorphChannel.from_json((Path(MORPH) / "params.json").read_text()))
@@ -114,54 +116,56 @@ def hnc(domain, workers):
     save(out / "hnc.done.json", {"source_sha": sha(out / "sources.jsonl"), "hnc_sha": sha(out / "hnc.jsonl")})
 
 
-def source_beams(domain):
-    out = WORK / domain
+def source_beams(domain, *, work=WORK, n=None, split="dev"):
+    out = work / domain
     receipt = json.loads((out / "hnc.done.json").read_text())
     if (sha(out / "sources.jsonl"), sha(out / "hnc.jsonl")) != (receipt["source_sha"], receipt["hnc_sha"]):
         raise ValueError("incomplete or changed H beam")
     src, beam = list(rows(out / "sources.jsonl")), list(rows(out / "hnc.jsonl"))
-    if len(src) != CONFIG[domain][0]:
+    if len(src) != (CONFIG[domain][0] if n is None else n):
         raise ValueError("incomplete sources")
     for i, (r, h) in enumerate(zip(src, beam, strict=True)):
-        require_source(r, domain, i)
+        require_source(r, domain, i, split)
         if any(h[k] != r[k] for k in r):
             raise ValueError("misordered beam")
     return src, beam
 
 
-def generate(domain):
+def generate(domain, *, work=WORK, n=None, split="dev"):
     from scripts.c_strong_generate import generate_pool
-    n, epoch, gleu, _ = CONFIG[domain]
-    src, h = source_beams(domain)
-    generate_pool(domain, WORK/domain, src, [[c["text"] for c in r["hyps"]] for r in h],
-                  {"domain": domain, "n": n, "epoch": epoch, "val_gleu": gleu})
+    _, epoch, gleu, _ = CONFIG[domain]
+    src, h = source_beams(domain, work=work, n=n, split=split)
+    generate_pool(domain, work/domain, src, [[c["text"] for c in r["hyps"]] for r in h],
+                  {"domain": domain, "n": len(src), "epoch": epoch, "val_gleu": gleu})
 
 
-def neural_b(domain):
+def neural_b(domain, *, work=WORK, n=None, split="dev"):
     import torch
     from scripts.nlm_score import causal_scores, masked_scores
     if domain != "korean_learner":
         raise ValueError("B contrasts only apply to Learner")
-    _, h = source_beams(domain)
+    _, h = source_beams(domain, work=work, n=n, split=split)
     texts = sorted({c["text"] for r in h for c in r["hyps"]})
     c = causal_scores(texts, str(CAUSAL), 64, "cuda", torch.bfloat16)
     m = masked_scores(texts, str(MASKED), 512, "cuda", torch.bfloat16)
-    with (WORK/domain/"b_scores.jsonl").open("x", encoding="utf-8") as f:
+    with (work/domain/"b_scores.jsonl").open("x", encoding="utf-8") as f:
         for text, a, b in zip(texts, c, m, strict=True):
             if a is None:
                 raise ValueError("incomplete B causal scores")
             line(f, {"text": text, "causal": a["lp"], "masked": b["lp"]})
 
 
-def choose(domain, partial):
-    out = WORK / domain
-    src, beam = source_beams(domain)
+def choose(domain, partial, *, work=WORK, n=None, split="dev"):
+    out = work / domain
+    src, beam = source_beams(domain, work=work, n=n, split=split)
     causal = {r["text"]: r["lp"] for r in rows(out / "causal.jsonl")}
     b = {r["text"]: r for r in rows(out / "b_scores.jsonl")} if domain == "korean_learner" else {}
     pcfg = iter(rows(out / "pcfg.jsonl")) if domain == "korean_learner" and not partial else None
     if pcfg is not None:
         receipt = json.loads((out / "pcfg.verified.json").read_text())
-        if sha(out / "pcfg.jsonl") != receipt["scores_sha"] or receipt["candidates"] != 34110:
+        count = sum(len(h["hyps"]) for h in beam)
+        if (sha(out / "pcfg.jsonl") != receipt["scores_sha"] or receipt["candidates"] != count
+                or (split == "dev" and count != 34110)):
             raise ValueError("unverified PCFG scores")
     mode = "partial" if partial else "full"
     with (out / f"predictions.{mode}.jsonl").open("x", encoding="utf-8") as f:

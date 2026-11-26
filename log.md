@@ -971,3 +971,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 명령: `scripts/rehearsal_aux.py kagas union --resume-empty`(알려진 미지원 명시: 종료 3), `scripts/rehearsal_score.py summary`; `pytest -q tests/test_rehearsal.py tests/test_c_strong_dev.py` **14개 통과**. 자원 지문 재검사 52개(동결 30, 신경 모델 21, 재구성 문법 1).
 - 결과: **M²/GLEU 76/76개 시스템×분할 조합 검증**. 편집 유형 KAGAS는 **70/76개 조합**이 완전하다. Union 93,328번 출현 중 93,325번 주석했고, 전체 세 자료 합계 218,757/218,760이다(Union은 전이 자료로 별도 집계하며 독립 표본 수가 아니다). Union 전체 및 그 안의 Lang8 출처 전체에서 각각 10행·11행·S8 대조의 유형별 P/R/F가 **NA**이다. **독립 Lang8 모델, Union 빔4 기준선, Union 확인 분할은 누락 없음.** 시험과 실제 검수 답안·키는 열지 않았다.
 - 보관: `/Volumes/T31/phdq_prob/phdq_prob/outputs/final_rehearsal_v1/scores/readiness.json`에 집계, 같은 실험 디렉토리의 `MANIFEST.sha256`에 새 증거 101개(지문 `f7c717c7f5dc960ed7419eb89b63686715efd37d1a983b0e37a95b4922c37264`). T31에서 전부 일치하고 원래 비교 입력 16개도 각각의 보관본과 일치한 뒤, itcerdo의 **이 실행 디렉토리만** 정리했다. 파생 문법은 itcerdo `data/models/pcfg_best.pkl`에 유지하고 T31에 사본을 보관했다. 복구 시 임시 압축·해제본 등 3.44 GB는 검증 후 삭제했다. [계획](./plan.md) 맨 마지막 §5는 그대로 유지한다.
+
+### 17:56 · 독립 시험 v1 승인 및 별도 저자원 비교 범위 확정 [gsm/itcerdo]
+
+- 작업: 사용자는 기존 v1로 시험을 **한 번** 실행하고 빈 출력으로 KAGAS가 실패하는 시스템·분할의 유형 지표를 NA로 보고하는 방식을 승인했다. 사람 검수·답안·대조 키는 이번 범위에서 제외했다.
+- 명령: 시험 참조를 열지 않고 원자료 파일 목록과 개발 영수증을 확인; `sha256sum --strict -c evaluation/final_v1.sha256`, 세 KoBART 복원 목록과 v3 문법 지문 대조.
+- 결정: 시험 출력 전부를 봉인한 뒤에만 정답/M²를 결합한다. 별도 연구인 저자원 비교는 같은 Kor-Learner train의 중첩 10/25/50/100%를 A/B/KoBART에 주며 표본 밖 GEC 교정쌍으로 학습한 자원은 쓰지 않는다. 시험에 재튜닝하지 않고 §5 Learner 해석은 주 평가 이후 **보관된 dev**만으로 진행한다.

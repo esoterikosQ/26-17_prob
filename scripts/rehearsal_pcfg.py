@@ -32,9 +32,9 @@ def score(text):
     return r.logprob, r.parsed
 
 
-def main(workers):
+def score_texts(texts, workers, receipt_file):
     global _parser
-    receipt = (WORK/"setup/grammar.sha256").read_text().split()
+    receipt = receipt_file.read_text().split()
     if len(receipt) != 2 or receipt[1] != str(MODEL) or sha(MODEL) != receipt[0]:
         raise ValueError("trusted transfer receipt does not match staged grammar")
     rev = subprocess.check_output(["git", "-C", str(PACKAGE), "rev-parse", "HEAD"], text=True).strip()
@@ -45,11 +45,16 @@ def main(workers):
     _parser = PCFGScorer.load(MODEL)
     if _parser.config != BEST_CONFIG or BEST_CONFIG["parent_v"] != 3:
         raise ValueError("not the preregistered v3 grammar")
+    with mp.get_context("fork").Pool(workers, initializer=init) as pool:
+        scores = dict(zip(texts, pool.imap(score, texts, chunksize=8), strict=True))
+    return scores, receipt[0]
+
+
+def main(workers):
     out = WORK / "korean_learner"
     _, beam = source_beams("korean_learner")
     texts = sorted({h["text"] for r in beam for h in r["hyps"]})
-    with mp.get_context("fork").Pool(workers, initializer=init) as pool:
-        scores = dict(zip(texts, pool.imap(score, texts, chunksize=8), strict=True))
+    scores, fingerprint = score_texts(texts, workers, WORK/"setup/grammar.sha256")
     err, n, parsed = 0., 0, 0
     with (out / "pcfg.jsonl").open("x", encoding="utf-8") as f:
         for r, old in zip(beam, rows(CACHE), strict=True):
@@ -67,7 +72,7 @@ def main(workers):
             line(f, {"i": r["i"], "hyps": hyps})
     if (n, parsed) != (34110, 33774) or err > 1e-8:
         raise ValueError(f"PCFG gate failed: {n}, {parsed}, {err}")
-    save(out/"pcfg.verified.json", {"grammar_sha": receipt[0], "candidate_reference_sha": sha(CACHE),
+    save(out/"pcfg.verified.json", {"grammar_sha": fingerprint, "candidate_reference_sha": sha(CACHE),
                                     "scores_sha": sha(out/"pcfg.jsonl"), "candidates": n, "parsed": parsed,
                                     "max_error": err, "source": REV})
 

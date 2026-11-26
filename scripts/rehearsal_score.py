@@ -152,6 +152,26 @@ def write_lines(path, values):
 
 def metrics(d, seal, ps, recs, blocks):
     require_parity(seal)
+    report = compute_m2(d, ps, recs, blocks, partitions(d, recs), RESULT)
+    previous = read(STRONG/d/"fixed.json")
+    for part, row in report.items():
+        cells = table_cells(d, part) if part in ("all_dev", "check") else {}
+        for k, v in row["metrics"].items():
+            if cells:
+                c = cells[VARIANTS[k]]
+                if int(c["n"]) != row["n"]:
+                    raise ValueError(f"{d}/{part}: wrong historical split")
+                agree(v, {m: float(c[m]) for m in METRICS}, f"{d}/{part}/{k}: frozen table")
+            if k in C and part in previous["metrics"]:
+                original = previous["metrics"][part][C[k]]
+                if any(v[m] != original[m] for m in ("correct", "proposed", "gold")):
+                    raise ValueError(f"{d}/{part}/{k}: original raw edit counts differ")
+    save(RESULT/f"m2.{d}.json", {"seal": seal, "domain": d, "official_cli_verified": True,
+                                 "gold_sha": sha(gold_path(d)), "partitions": report})
+    print(f"{d}: official M2 verified in {len(report)} partitions", flush=True)
+
+
+def compute_m2(d, ps, recs, blocks, parts, output):
     sys.path.insert(0, str(Path("tools/m2scorer/scripts").resolve()))
     names = sorted(systems(d, False))
     evidence = []
@@ -160,12 +180,10 @@ def metrics(d, seal, ps, recs, blocks):
         ys = p["predictions"]
         unique = {y: per_candidate(y, x, gold) for y in set(ys.values())}
         evidence.append({"ngold": len(gold), "types": types, "hyps": [unique[ys[k]] for k in names]})
-    previous = read(STRONG/d/"fixed.json")
     report = {}
-    with TemporaryDirectory(dir=RESULT) as tmp:
+    with TemporaryDirectory(dir=output) as tmp:
         hp, gp = Path(tmp)/"hyp.txt", Path(tmp)/"gold.m2"
-        for part, ids in partitions(d, recs).items():
-            cells = table_cells(d, part) if part in ("all_dev", "check") else {}
+        for part, ids in parts.items():
             write_m2([blocks[i] for i in ids], gp)
             denom = Counter(t for i in ids for t in evidence[i]["types"])
             values, contrasts, audit = {}, {}, {}
@@ -173,15 +191,6 @@ def metrics(d, seal, ps, recs, blocks):
                 v = aggregate([stats(evidence[i], evidence[i]["hyps"][j]) for i in ids]).metrics()
                 write_lines(hp, (ps[i]["predictions"][k] for i in ids))
                 agree(m2score(hp, gp), v, f"{d}/{part}/{k}: official M2 CLI")
-                if cells:
-                    c = cells[VARIANTS[k]]
-                    if int(c["n"]) != len(ids):
-                        raise ValueError(f"{d}/{part}: wrong historical split")
-                    agree(v, {m: float(c[m]) for m in METRICS}, f"{d}/{part}/{k}: frozen table")
-                if k in C and part in previous["metrics"]:
-                    original = previous["metrics"][part][C[k]]
-                    if any(v[m] != original[m] for m in ("correct", "proposed", "gold")):
-                        raise ValueError(f"{d}/{part}/{k}: original raw edit counts differ")
                 hits = Counter(evidence[i]["types"][t] for i in ids for t in evidence[i]["hyps"][j]["tp"])
                 values[k] = {**v, "tp_by_reference_type": {t: {"tp": hits[t], "gold": g, "recall": hits[t]/g}
                                                            for t, g in sorted(denom.items())}}
@@ -195,9 +204,7 @@ def metrics(d, seal, ps, recs, blocks):
                 audit[k] = {"changed_regions": histogram.total(), "map": dict(histogram),
                             "unclassified": histogram["UNCLASSIFIED"], "backoff_only": backoff}
             report[part] = {"n": len(ids), "metrics": values, "paired": contrasts, "automatic_audit": audit}
-    save(RESULT/f"m2.{d}.json", {"seal": seal, "domain": d, "official_cli_verified": True,
-                                 "gold_sha": sha(gold_path(d)), "partitions": report})
-    print(f"{d}: official M2 verified in {len(report)} partitions", flush=True)
+    return report
 
 
 def readiness():
