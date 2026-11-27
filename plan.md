@@ -6,6 +6,8 @@
 
 **별도 후속 비교:** 사용자 요청으로 이미 평가한 세 자료에서 신경 후보원만 `pko-t5-large`로 바꿨다. 같은 seed 0에서 T5 1위 → T5+HNC의 F0.5는 Learner **59.26→62.02**, Lang8 **48.12→45.81**, Union **55.88→53.22**다. Learner의 개선은 주로 T5 후보 재채점에서 나왔으며, HNC 후보 자체의 추가 이득은 구간이 0을 포함한다. [설계서 §6.5](./korean_gec_noisy_channel_design.md#65-후속-비교-kobart를-pko-t5-large로-바꾸면). 원 v1 시험의 예측·검수·가중치를 바꾸지 않았다.
 
+**[종합 결과 보고서](./evaluation/results_report.md)**: 전체 실험과 사람 설명 평가, Lang8의 단일 참조·편집 구성·후보 누락, Union의 동일 출처 모델 비교·micro 점수 하락 기여를 구분한다. 새 도메인 분석은 봉인된 예측에 대한 사후 진단이며 독립 시험을 다시 시행하지 않았다.
+
 ## 0. 작업 위치와 기록
 
 - gsm: 편집·commit/push·`log.md` 기록·데이터 전송. itcerdo `~/projects/phdq_prob`: 설치·테스트·데이터 처리·실험.
