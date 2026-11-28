@@ -1151,3 +1151,9 @@ python scripts/decode.py --set native … --channel datasets/channel/{ec2_native
 - 명령: 생성기 `2f25a78`을 원격에 반영했다. `pytest -q tests/test_union_sample_side_by_side.py tests/test_haiku_union_sample.py` 4개 통과 → `python scripts/union_sample_side_by_side.py`. 별도로 HTML을 파싱해 각 셀에서 삭제 쪽과 추가 쪽의 문자열을 복원하고 JSONL 및 원래 봉인 예측·원문쌍과 **11,000셀 전수** 대조했다(원문·참조·모델/조건 9종).
 - 결과: Lang8 709 / Learner 192 / Native 99. 기본 5개 출력이 공백·부호까지 모두 일치 132건(이 중 원문 유지 41), 불일치 868건. 신경 단독과 +HNC의 출력이 달랐던 것은 KoBART 608건, T5-large 556건이다. 이는 정확도 차이가 아니라 출력 문자열의 차이다.
 - 보관: T31 `phdq_prob/outputs/union_1k_side_by_side_v1/`의 `comparison.html`, `sentences.jsonl`, 집계 영수증 및 입력 목록(총 6파일)을 실험별 `MANIFEST.sha256`(`7bc3150fd5cb0809439610b3260253a03ce5d2fa7815cc3e999f21c17d7e1c58`)과 확인했다. T31 안내서에 재생성 방법을 적고 원격의 이번 작업 출력 사본 7파일(목록 포함)과 임시 입력 11파일만 지웠다. 코퍼스와 세 원래 보관본은 유지했다.
+
+### 18:09–18:18 · 기존 하위 작업 중지 요청·T31 열람 경로 확인 [gsm]
+
+- 작업: 사용자 요청으로 최초 Haiku 작업 2개에 미승인 명령이나 추가 제출 없이 종료하라고 전달했다. 이미 결과를 제출하고 대기 중인 4개는 다시 깨우지 않았다.
+- 명령: 하위 작업 목록을 재확인하고, 로컬에서 T31의 `comparison.html` 존재와 읽기 권한을 확인했다.
+- 결과: 중지 메시지는 2개 모두 전달됐지만 마지막 확인은 `Running` 2개, `Idle` 4개였다. 강제 종료는 확인하지 못했다. 새 교정·채점이나 보관 결과 변경은 없으며 대조표는 Mac의 브라우저에서 오프라인으로 열 수 있다.
